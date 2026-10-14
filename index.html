@@ -119,6 +119,7 @@ td input[type=checkbox]{width:22px;height:22px}
 }
 /* Messages aux parents */
 .btn.wa{background:#1b8a4a;border-color:#1b8a4a;color:#fff;text-decoration:none}
+.ico{width:18px;height:18px;flex:none}
 a.btn{text-decoration:none;color:inherit}
 .card.suivi{border-color:var(--warn);background:var(--warn-soft)}
 .card.encour{border-color:var(--good);background:var(--good-soft)}
@@ -345,7 +346,7 @@ function viewSaisie(){
   h+='<div class="row between"><h2>Devoirs · '+esc(S.classe)+' · '+esc(matName(S.matiere))+'</h2><button class="btn primary" data-act="new-devoir"'+dis+'>+ Nouveau devoir</button></div>';
   if(!devs.length)h+='<p class="small muted">Aucun devoir dans cette matière au '+trimName(S.trim)+'.</p>';
   else h+='<div class="list">'+devs.map(d=>{const n=vueNotes(d.id),vals=n?Object.values(n).map(x=>x.note).filter(num):[];
-    return '<div class="li"><span class="no small">'+dateFr(d.date)+'</span><span><b>'+esc(d.titre||'Devoir')+'</b>'+(enAttente(d.id)?' <span class="badge warn">à envoyer</span>':'')+'<br><span class="small muted">'+(n?vals.length+'/'+els.length+' notes · moyenne '+fmt(avg(vals)):'notes non chargées')+'</span></span><button class="btn sm" data-act="edit" data-id="'+d.id+'"'+dis+'>'+(lk?'Verrouillé':'Modifier')+'</button></div>'}).join('')+'</div>';
+    return '<div class="li"><span class="no small">'+dateFr(d.date)+'</span><span><b>'+esc(d.titre||'Devoir')+'</b>'+(enAttente(d.id)?' <span class="badge warn">à envoyer</span>':'')+'<br><span class="small muted">'+(n?vals.length+'/'+els.length+' notes · moyenne '+fmt(avg(vals)):'notes non chargées')+'</span></span><span class="row">'+(isBureau()&&vals.length&&!enAttente(d.id)?'<button class="btn sm wa" data-act="msg-go" data-id="'+d.id+'">'+ICO_WA+'Parents</button>':'')+'<button class="btn sm" data-act="edit" data-id="'+d.id+'"'+dis+'>'+(lk?'Verrouillé':'Modifier')+'</button></span></div>'}).join('')+'</div>';
   // Composition
   const nc=compo&&vueNotes(compo.id),faits=nc?Object.values(nc).filter(x=>x.dispense||num(x.note)).length:0;
   h+='<h2>Composition · '+trimName(S.trim)+'</h2><div class="list"><div class="li"><span class="no small">'+(compo&&faits>=els.length&&els.length?'✓':'')+'</span><span><b>Notes de classe /20 et composition /40</b>'+(compo&&enAttente(compo.id)?' <span class="badge warn">à envoyer</span>':'')+'<br><span class="small muted">'+(compo?(nc?faits+'/'+els.length+' élèves':'notes non chargées'):'Pas encore saisie')+'</span></span><button class="btn sm" data-act="compo"'+dis+(els.length?'':' disabled')+'>'+(compo?'Modifier':'Saisir')+'</button></div></div>';
@@ -408,7 +409,7 @@ function enregistrer(){
   const serveur=S.notes[ev.id]||{};
   const p={pid:uuid(),kind:'save',ev:{id:ev.id,annee:ev.annee,classe:ev.classe,matiere:ev.matiere,trimestre:ev.trimestre,type:ev.type,titre:ev.titre,date:ev.date||null},notes,cleared:cleared.filter(id=>id in serveur),at:Date.now()};
   mettreEnFile(p);if(!compo&&ev.classe===S.classe){S.matiere=ev.matiere;saveSel()}S.view=null;S.draft=null;S.err='';render(true);
-  if(S.online&&navigator.onLine){toast('Notes enregistrées. Envoi…');synchroniser()}
+  if(S.online&&navigator.onLine){toast(isBureau()&&!compo?'Notes enregistrées. Touchez « Parents » pour prévenir les parents.':'Notes enregistrées. Envoi…');synchroniser()}
   else toast('Notes gardées sur le téléphone. Elles partiront au retour du réseau.');
 }
 function supprimer(){
@@ -768,13 +769,13 @@ async function envoyerImage(kind,eid){
     let file=M.pret&&M.pret.cle===P.cle?M.pret.file:null;
     if(!file){const cv=await P.carte(),blob=await new Promise(ok=>cv.toBlob(ok,'image/png'));file=new File([blob],P.nom,{type:'image/png'})}
     if(navigator.canShare&&navigator.canShare({files:[file]})){
-      try{await navigator.share({files:[file],text:P.msg});M.pret=null;noterEnvoi(kind,eid)}
-      catch(err){if(err&&err.name==='NotAllowedError'){M.pret={cle:P.cle,file};toast('Image prête : touchez encore « Image + message ».')}
+      try{await navigator.share({files:[file]});M.pret=null}
+      catch(err){if(err&&err.name==='NotAllowedError'){M.pret={cle:P.cle,file};toast('Image prête : touchez encore « Image ».')}
         else if(!(err&&err.name==='AbortError'))toast('Partage impossible : '+(err&&err.message||err))}
     }else{
       // Téléphone ou navigateur sans partage d'image : l'image est enregistrée, puis la discussion du parent s'ouvre
-      telecharger(file,P.nom);const w=window.open(waLink(P.e.parent_tel,P.msg),'_blank');
-      toast(w?'Image enregistrée : joignez-la dans WhatsApp avec le trombone 📎.':'Image enregistrée. Touchez « Message seul » pour ouvrir WhatsApp.');noterEnvoi(kind,eid)}
+      // Navigateur sans partage d'image : l'image est enregistrée dans le téléphone
+      telecharger(file,P.nom);toast('Image enregistrée : dans la discussion du parent, joignez-la avec le trombone 📎.')}
   }finally{M.busy=false}
 }
 /* Aperçu de l'image pour le premier élève de la liste */
@@ -794,18 +795,21 @@ function contactsVcf(c){
 }
 
 /* Affichage */
+const ICO_WA='<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="currentColor" d="M12 3a9 9 0 0 0-7.8 13.5L3 21l4.6-1.2A9 9 0 1 0 12 3zm0 1.8a7.2 7.2 0 1 1-3.7 13.4l-.3-.2-2.6.7.7-2.5-.2-.3A7.2 7.2 0 0 1 12 4.8zm-3 3.5c-.2 0-.5 0-.7.3-.3.3-.9.9-.9 2.2s.9 2.5 1 2.7c.2.2 1.8 2.8 4.4 3.8 2.2.9 2.6.7 3.1.6.5 0 1.5-.6 1.7-1.2.2-.6.2-1.1.2-1.2l-.4-.3-1.6-.8c-.2-.1-.4-.1-.6.1l-.7.9c-.1.2-.3.2-.5.1a5.9 5.9 0 0 1-2.9-2.6c-.2-.4.2-.4.6-1.2.1-.2 0-.3 0-.4l-.7-1.8c-.2-.5-.4-.4-.6-.4H9z"/></svg>';
+const ICO_IMG='<svg class="ico" viewBox="0 0 24 24" aria-hidden="true"><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="M4 5h16v14H4z"/><path fill="none" stroke="currentColor" stroke-width="2" stroke-linejoin="round" d="m4 16 5-5 4 4 2-2 5 5"/><circle cx="15.5" cy="9" r="1.6" fill="currentColor"/></svg>';
 function boutonsEnvoi(kind,e,deja){
   const tel=telDigits(e.parent_tel),P=tel?preparer(kind,e.id):null;
   if(!tel)return '<span class="row"><button class="btn sm" data-act="el-edit" data-id="'+e.id+'">Ajouter le n° du parent</button></span>';
-  return '<span class="row"><button class="btn sm wa" data-act="msg-img" data-k="'+kind+'" data-eid="'+e.id+'">'+(deja?'Renvoyer':'Image + message')+'</button>'+
-    (P?'<a class="btn sm" href="'+esc(waLink(e.parent_tel,P.msg))+'" target="_blank" rel="noopener" data-act="msg-txt" data-k="'+kind+'" data-eid="'+e.id+'">Message seul</a>':'')+'</span>';
+  if(!P)return '';
+  return '<span class="row"><a class="btn sm wa" href="'+esc(waLink(e.parent_tel,P.msg))+'" target="_blank" rel="noopener" data-act="msg-txt" data-k="'+kind+'" data-eid="'+e.id+'" aria-label="Envoyer le message WhatsApp au parent de '+esc(nomEleve(e))+'">'+ICO_WA+(deja?'Renvoyer':'WhatsApp')+'</a>'+
+    '<button class="btn sm" data-act="msg-img" data-k="'+kind+'" data-eid="'+e.id+'">'+ICO_IMG+'Image</button></span>';
 }
 function ligneAlerte(a,mode){
   const e=a.e,tel=telDigits(e.parent_tel),fait=S.msg.suivis[a.cle],prog=a.type==='prog';
   const msg=mode==='suivi'?msgSuivi(e,a.devs):prog?msgProg(e,a.t,a.avant,a.apres):msgEncour(e,a.devs);
   const det=prog?'T'+(a.t-1)+' : '+fmt(a.avant)+' → T'+a.t+' : <b class="hi">'+fmt(a.apres)+'</b>':a.devs.map(d=>esc(matName(d.matiere))+' <b class="'+(mode==='suivi'?'low':'hi')+'">'+fmtN(noteDe(d,e.id))+'</b>').join(' · ');
   return '<div class="li m"><span class="no small">'+(prog?'T'+a.t:dateFr(a.dernier.date))+'</span><span><b>'+esc(nomEleve(e))+'</b>'+(fait?' <span class="badge ok">envoyé</span>':'')+'<br><span class="small">'+det+'</span></span><span class="row">'+
-    (tel?'<a class="btn sm wa" href="'+esc(waLink(e.parent_tel,msg))+'" target="_blank" rel="noopener" data-act="msg-suivi" data-cle="'+esc(a.cle)+'" data-eid="'+e.id+'" data-devs="'+a.devs.map(d=>d.id).join(',')+'">'+(fait?'Renvoyer':mode==='suivi'?'Prévenir le parent':'Féliciter le parent')+'</a>':'<button class="btn sm" data-act="el-edit" data-id="'+e.id+'">Ajouter le n° du parent</button>')+'</span></div>';
+    (tel?'<a class="btn sm wa" href="'+esc(waLink(e.parent_tel,msg))+'" target="_blank" rel="noopener" data-act="msg-suivi" data-cle="'+esc(a.cle)+'" data-eid="'+e.id+'" data-devs="'+a.devs.map(d=>d.id).join(',')+'">'+ICO_WA+(fait?'Renvoyer':mode==='suivi'?'Prévenir le parent':'Féliciter le parent')+'</a>':'<button class="btn sm" data-act="el-edit" data-id="'+e.id+'">Ajouter le n° du parent</button>')+'</span></div>';
 }
 function carteAlertes(items,mode,titre,expl){
   if(!items.length)return '';const af=items.filter(a=>!S.msg.suivis[a.cle]),faits=items.filter(a=>S.msg.suivis[a.cle]);
@@ -837,7 +841,7 @@ function viewMessages(){
   return h+'<p class="small muted">Les notes de composition ne sont jamais envoyées aux parents. Un élève absent à un devoir ne reçoit pas de message.</p>';
 }
 function aideEnvoi(){
-  return '<ul class="steps small"><li><b>Image + message</b> : choisissez WhatsApp, puis le parent (tapez le nom de l\'élève si les contacts des parents sont enregistrés), et envoyez.</li><li><b>Message seul</b> : ouvre directement la discussion du parent avec le texte, sans image. Utile si le parent n\'est pas dans les contacts : envoyez d\'abord le message, puis l\'image le retrouvera en haut de la liste.</li></ul>';
+  return '<ul class="steps small"><li><b>WhatsApp</b> : la discussion du parent s\'ouvre toute seule, avec le message déjà écrit. Il reste à toucher la flèche d\'envoi, puis à revenir sur cette page.</li><li><b>Image</b> (envoyée à part) : choisissez WhatsApp, puis la discussion du parent, qui est maintenant tout en haut de la liste.</li></ul>';
 }
 function viewMsgDevoir(){
   const M=S.msg,d=vueEvals().find(x=>x.id===M.evalId);if(!d){S.view=null;return viewMessages()}
@@ -1077,6 +1081,7 @@ document.addEventListener('click',async ev=>{
   if(a==='rg-del-mat-yes'){if(!S.reg.busy)retirerMatiere();return}
   if(a==='rg-save-eco'){if(!S.reg.busy)enregistrerEcole();return}
   if(a==='rg-logo-del'){S.reg.eco.logo='';render(true);return}
+  if(a==='msg-go'){const d=vueEvals().find(x=>x.id===b.dataset.id);if(!d)return;S.tab='messages';S.msg.classe=d.classe;S.msg.evalId=d.id;S.view='msg-dev';render(true);window.scrollTo(0,0);chargerMessages();return}
   if(a==='msgcl'){S.msg.classe=b.dataset.c;S.view=null;render(true);chargerMessages();return}
   if(a==='msg-dev'){S.msg.evalId=b.dataset.id;S.view='msg-dev';render(true);window.scrollTo(0,0);return}
   if(a==='msg-bul'){S.view='msg-bul';render(true);window.scrollTo(0,0);return}
