@@ -769,13 +769,13 @@ async function envoyerImage(kind,eid){
     let file=M.pret&&M.pret.cle===P.cle?M.pret.file:null;
     if(!file){const cv=await P.carte(),blob=await new Promise(ok=>cv.toBlob(ok,'image/png'));file=new File([blob],P.nom,{type:'image/png'})}
     if(navigator.canShare&&navigator.canShare({files:[file]})){
-      try{await navigator.share({files:[file]});M.pret=null}
+      try{await navigator.share({files:[file]});M.pret=null;noterEnvoi(kind,eid);toast('Image envoyée. Touchez « 2. Message » pour le texte.')}
       catch(err){if(err&&err.name==='NotAllowedError'){M.pret={cle:P.cle,file};toast('Image prête : touchez encore « Image ».')}
         else if(!(err&&err.name==='AbortError'))toast('Partage impossible : '+(err&&err.message||err))}
     }else{
       // Téléphone ou navigateur sans partage d'image : l'image est enregistrée, puis la discussion du parent s'ouvre
       // Navigateur sans partage d'image : l'image est enregistrée dans le téléphone
-      telecharger(file,P.nom);toast('Image enregistrée : dans la discussion du parent, joignez-la avec le trombone 📎.')}
+      telecharger(file,P.nom);noterEnvoi(kind,eid);toast('Image enregistrée : touchez « 2. Message », puis joignez l\'image avec le trombone 📎.')}
   }finally{M.busy=false}
 }
 /* Aperçu de l'image pour le premier élève de la liste */
@@ -801,8 +801,8 @@ function boutonsEnvoi(kind,e,deja){
   const tel=telDigits(e.parent_tel),P=tel?preparer(kind,e.id):null;
   if(!tel)return '<span class="row"><button class="btn sm" data-act="el-edit" data-id="'+e.id+'">Ajouter le n° du parent</button></span>';
   if(!P)return '';
-  return '<span class="row"><a class="btn sm wa" href="'+esc(waLink(e.parent_tel,P.msg))+'" target="_blank" rel="noopener" data-act="msg-txt" data-k="'+kind+'" data-eid="'+e.id+'" aria-label="Envoyer le message WhatsApp au parent de '+esc(nomEleve(e))+'">'+ICO_WA+(deja?'Renvoyer':'WhatsApp')+'</a>'+
-    '<button class="btn sm" data-act="msg-img" data-k="'+kind+'" data-eid="'+e.id+'">'+ICO_IMG+'Image</button></span>';
+  return '<span class="row"><button class="btn sm wa" data-act="msg-img" data-k="'+kind+'" data-eid="'+e.id+'" aria-label="Envoyer l\'image au parent de '+esc(nomEleve(e))+'">'+ICO_IMG+(deja?'Renvoyer l\'image':'1. Image')+'</button>'+
+    '<a class="btn sm" href="'+esc(waLink(e.parent_tel,P.msg))+'" target="_blank" rel="noopener" data-act="msg-txt" data-k="'+kind+'" data-eid="'+e.id+'" aria-label="Envoyer le message WhatsApp au parent de '+esc(nomEleve(e))+'">'+ICO_WA+'2. Message</a></span>';
 }
 function ligneAlerte(a,mode){
   const e=a.e,tel=telDigits(e.parent_tel),fait=S.msg.suivis[a.cle],prog=a.type==='prog';
@@ -841,7 +841,7 @@ function viewMessages(){
   return h+'<p class="small muted">Les notes de composition ne sont jamais envoyées aux parents. Un élève absent à un devoir ne reçoit pas de message.</p>';
 }
 function aideEnvoi(){
-  return '<ul class="steps small"><li><b>WhatsApp</b> : la discussion du parent s\'ouvre toute seule, avec le message déjà écrit. Il reste à toucher la flèche d\'envoi, puis à revenir sur cette page.</li><li><b>Image</b> (envoyée à part) : choisissez WhatsApp, puis la discussion du parent, qui est maintenant tout en haut de la liste.</li></ul>';
+  return '<ul class="steps small"><li><b>1. Image</b> (en premier) : choisissez WhatsApp, puis le parent. Astuce : enregistrez une fois les « Contacts des parents » de la classe (onglet Messages) ; il suffit alors de taper le nom de l\'élève pour trouver son parent.</li><li><b>2. Message</b> (ensuite, à part) : la discussion du parent s\'ouvre toute seule avec le texte déjà écrit. Touchez la flèche d\'envoi.</li></ul>';
 }
 function viewMsgDevoir(){
   const M=S.msg,d=vueEvals().find(x=>x.id===M.evalId);if(!d){S.view=null;return viewMessages()}
