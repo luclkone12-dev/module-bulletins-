@@ -117,6 +117,17 @@ td input[type=checkbox]{width:22px;height:22px}
   .feuille.un .doc{min-width:0;padding:0;font-size:11pt}
   .doc,.doc th,.doc td{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 }
+/* Messages aux parents */
+.btn.wa{background:#1b8a4a;border-color:#1b8a4a;color:#fff;text-decoration:none}
+a.btn{text-decoration:none;color:inherit}
+.card.suivi{border-color:var(--warn);background:var(--warn-soft)}
+.card.encour{border-color:var(--good);background:var(--good-soft)}
+.card.suivi .list,.card.encour .list{background:var(--surface)}
+details summary{cursor:pointer;font-weight:600}
+.prev{display:grid;gap:6px;justify-items:start}
+.prev img{width:min(220px,100%);aspect-ratio:1080/1200;border:1px solid var(--line);border-radius:8px;background:#fff}
+.steps{margin:0;padding-left:1.3rem;display:grid;gap:6px}
+@media (max-width:560px){.li.m{grid-template-columns:2rem 1fr}.li.m>.row{grid-column:2}}
 .toast{position:fixed;left:50%;bottom:calc(16px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--paper);padding:10px 16px;border-radius:8px;font-weight:600;z-index:20;max-width:calc(100% - 32px)}
 </style>
 </head>
@@ -191,7 +202,7 @@ async function chargerTout(){
   const [mat,aff,el,ev,vr]=await Promise.all([
     fetchAll(()=>sb.from('matieres').select('id,nom,niveaux,coefs,ordre').order('ordre').order('nom')),
     fetchAll(()=>sb.from('affectations').select('user_id,classe,matiere,annee').eq('annee',S.annee)),
-    fetchAll(()=>sb.from('eleves').select('id,matricule,nom,prenom,sexe,classe').order('nom').order('prenom')),
+    fetchAll(()=>sb.from('eleves').select(champsEl()).order('nom').order('prenom')),
     fetchAll(()=>sb.from('evaluations').select('id,annee,classe,matiere,trimestre,type,titre,date,cree_le').eq('annee',S.annee).order('cree_le')),
     fetchAll(()=>sb.from('verrous').select('annee,classe,trimestre').eq('annee',S.annee))]);
   S.matieres=mat;S.aff=aff;S.eleves=el;S.evals=ev;S.verrous=vr;
@@ -265,6 +276,7 @@ function render(force){
   const a=document.activeElement;
   if(!force&&enFormulaire()&&a&&$app.contains(a)&&/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))return;
   $app.innerHTML=viewMain();
+  if(S.tab==='messages'&&(S.view==='msg-dev'||S.view==='msg-bul'))apercu();
 }
 function renderHead(){
   const h=document.getElementById('head');
@@ -279,7 +291,7 @@ function renderHead(){
     if(errs)s+='<span style="color:#ffb4ab">'+errs+' refusée'+(errs>1?'s':'')+'</span>';
     s+='</div>';
     if(isBureau()){const t=(k,l)=>'<button role="tab" data-act="tab" data-k="'+k+'" aria-selected="'+(S.tab===k)+'">'+l+'</button>';
-      s+='<nav class="tabs" role="tablist">'+t('saisie','Notes')+t('bulletins','Bulletins')+t('eleves','Élèves')+(isDir()?t('direct','En direct')+t('reglages','Réglages'):'')+'</nav>'}
+      s+='<nav class="tabs" role="tablist">'+t('saisie','Notes')+t('bulletins','Bulletins')+t('messages','Messages')+t('eleves','Élèves')+(isDir()?t('direct','En direct')+t('reglages','Réglages'):'')+'</nav>'}
   }
   h.innerHTML=s;
 }
@@ -291,6 +303,7 @@ function viewMain(){
   if(S.view==='eleve'&&isBureau())return viewEleveForm();
   if(S.view==='import'&&isBureau())return viewImport();
   if(S.tab==='bulletins'&&isBureau())return S.view==='bulletin'?viewBulletin():viewBulletins();
+  if(S.tab==='messages'&&isBureau())return S.view==='msg-dev'?viewMsgDevoir():S.view==='msg-bul'?viewMsgBul():viewMessages();
   if(S.tab==='eleves'&&isBureau())return viewEleves();
   if(S.tab==='direct'&&isDir())return viewDirect();
   if(S.tab==='reglages'&&isDir())return viewReglages();
@@ -404,7 +417,8 @@ function supprimer(){
 }
 
 /* ----- Élèves (directeur et secrétariat) ----- */
-const CHAMPS_EL='id,matricule,nom,prenom,sexe,classe';
+// Le numéro du parent n'est chargé que pour le directeur et le secrétariat (les enseignants n'en ont pas besoin)
+const champsEl=()=>'id,matricule,nom,prenom,sexe,classe'+(isBureau()?',parent_nom,parent_tel':'');
 const cleNom=(n,p)=>(String(n||'')+'|'+String(p||'')).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/\s+/g,' ').trim();
 function majEleve(r){const i=S.eleves.findIndex(e=>e.id===r.id);if(i>=0)S.eleves[i]=r;else S.eleves.push(r)}
 function viewEleves(){
@@ -412,7 +426,8 @@ function viewEleves(){
   const els=elevesOf(c),f=els.filter(e=>e.sexe==='F').length,g=els.filter(e=>e.sexe==='M').length,x=els.length-f-g;
   const sans=S.eleves.filter(e=>!CLASSES.includes(e.classe));
   let h='<div class="card"><h2>Élèves</h2><div class="chips" role="group" aria-label="Classe">'+CLASSES.map(k=>'<button class="chip" data-act="elcl" data-c="'+k+'" aria-pressed="'+(k===c)+'">'+k+' · '+elevesOf(k).length+'</button>').join('')+'</div>';
-  h+='<p class="small muted">'+els.length+' élève'+(els.length>1?'s':'')+' en '+c+' · '+f+' fille'+(f>1?'s':'')+' · '+g+' garçon'+(g>1?'s':'')+(x?' · '+x+' sans sexe indiqué':'')+'</p>';
+  const st=els.filter(e=>!telDigits(e.parent_tel)).length;
+  h+='<p class="small muted">'+els.length+' élève'+(els.length>1?'s':'')+' en '+c+' · '+f+' fille'+(f>1?'s':'')+' · '+g+' garçon'+(g>1?'s':'')+(x?' · '+x+' sans sexe indiqué':'')+(st?' · '+st+' sans numéro de parent':'')+'</p>';
   h+='<div class="row"><button class="btn primary" data-act="el-new"'+(S.online?'':' disabled')+'>+ Ajouter un élève</button><button class="btn" data-act="el-import"'+(S.online?'':' disabled')+'>Coller une liste</button></div>';
   if(!S.online)h+='<p class="small muted">Hors connexion : ajouter ou modifier des élèves demande du réseau.</p>';
   h+='</div>';
@@ -421,13 +436,14 @@ function viewEleves(){
   if(sans.length)h+='<h2>Sans classe</h2><div class="list">'+sans.map((e,i)=>ligneEleve(e,i+1)).join('')+'</div>';
   return h;
 }
-const ligneEleve=(e,n)=>'<div class="li"><span class="no">'+n+'</span><span><b>'+esc(nomEleve(e))+'</b>'+(e.sexe?' <span class="badge">'+(e.sexe==='F'?'F':'G')+'</span>':'')+(e.matricule?'<br><span class="small muted">Matricule '+esc(e.matricule)+'</span>':'')+'</span><button class="btn sm" data-act="el-edit" data-id="'+e.id+'"'+(S.online?'':' disabled')+'>Modifier</button></div>';
+const ligneEleve=(e,n)=>{const tel=telDigits(e.parent_tel),inf=[e.matricule?'Matricule '+esc(e.matricule):'',tel?'Parent '+telAff(tel):''].filter(Boolean).join(' · ');
+  return '<div class="li"><span class="no">'+n+'</span><span><b>'+esc(nomEleve(e))+'</b>'+(e.sexe?' <span class="badge">'+(e.sexe==='F'?'F':'G')+'</span>':'')+(tel?'':' <span class="badge warn">sans n° parent</span>')+(inf?'<br><span class="small muted">'+inf+'</span>':'')+'</span><button class="btn sm" data-act="el-edit" data-id="'+e.id+'"'+(S.online?'':' disabled')+'>Modifier</button></div>'};
 async function ouvrirEleve(id){
   let e={nom:'',prenom:'',sexe:'',classe:S.elClasse||CLASSES[0],matricule:'',naissance_date:'',naissance_lieu:'',parent_nom:'',parent_tel:''};
-  if(id){try{const r=chk(await sb.from('eleves').select(CHAMPS_EL+',naissance_date,naissance_lieu,parent_nom,parent_tel').eq('id',id).maybeSingle());if(!r){toast('Cet élève n\'existe plus.');return}e=r}
+  if(id){try{const r=chk(await sb.from('eleves').select('id,matricule,nom,prenom,sexe,classe,naissance_date,naissance_lieu,parent_nom,parent_tel').eq('id',id).maybeSingle());if(!r){toast('Cet élève n\'existe plus.');return}e=r}
     catch(err){toast(estReseau(err)?'Pas de réseau.':msgErreur(err));return}}
   Object.keys(e).forEach(k=>{if(e[k]==null)e[k]=''});
-  S.elDraft={...e};S.view='eleve';S.confirm=null;S.err='';render(true);window.scrollTo(0,0);
+  S.vueAvant=S.tab==='messages'?S.view:null;S.elDraft={...e};S.view='eleve';S.confirm=null;S.err='';render(true);window.scrollTo(0,0);
 }
 function viewEleveForm(){
   const e=S.elDraft,neuf=!e.id;
@@ -450,9 +466,9 @@ async function enregistrerEleve(force){
   const v=t=>{t=String(t??'').trim();return t||null};
   const row={nom:nom.toUpperCase(),prenom,sexe:e.sexe||null,classe:e.classe,matricule:v(e.matricule),naissance_date:v(e.naissance_date),naissance_lieu:v(e.naissance_lieu),parent_nom:v(e.parent_nom),parent_tel:v(e.parent_tel)};
   S.busy=true;S.err='';render(true);
-  try{const r=e.id?chk(await sb.from('eleves').update(row).eq('id',e.id).select(CHAMPS_EL).single()):chk(await sb.from('eleves').insert(row).select(CHAMPS_EL).single());
+  try{const r=e.id?chk(await sb.from('eleves').update(row).eq('id',e.id).select(champsEl()).single()):chk(await sb.from('eleves').insert(row).select(champsEl()).single());
     majEleve(r);saveCache();S.busy=false;S.elClasse=r.classe;
-    if(e.id){S.view=null;S.elDraft=null;render(true);toast('Élève enregistré.')}
+    if(e.id){S.view=S.vueAvant||null;S.elDraft=null;render(true);toast('Élève enregistré.')}
     else{S.elDraft={nom:'',prenom:'',sexe:'',classe:r.classe,matricule:'',naissance_date:'',naissance_lieu:'',parent_nom:'',parent_tel:''};render(true);toast(nomEleve(r)+' ajouté(e). Vous pouvez saisir le suivant.');const n=document.getElementById('e-nom');if(n)n.focus()}
   }catch(err){S.busy=false;S.err=estReseau(err)?'Pas de réseau : réessayez quand la connexion revient.':(err.code==='23505'?'Ce matricule est déjà utilisé par un autre élève.':msgErreur(err));render(true)}
 }
@@ -502,7 +518,7 @@ function verifierImport(){
 async function enregistrerImport(){
   const I=S.imp,rows=(I.lignes||[]).filter(r=>r.ok&&!r.doublon).map(r=>({nom:r.nom,prenom:r.prenom,sexe:r.sexe,classe:I.classe}));
   if(!rows.length)return;S.busy=true;S.err='';render(true);let n=0;
-  try{for(let i=0;i<rows.length;i+=100){const d=chk(await sb.from('eleves').insert(rows.slice(i,i+100)).select(CHAMPS_EL));d.forEach(majEleve);n+=d.length}
+  try{for(let i=0;i<rows.length;i+=100){const d=chk(await sb.from('eleves').insert(rows.slice(i,i+100)).select(champsEl()));d.forEach(majEleve);n+=d.length}
     saveCache();S.busy=false;S.elClasse=I.classe;S.imp=null;S.view=null;render(true);toast(n+' élève'+(n>1?'s':'')+' ajouté'+(n>1?'s':'')+' en '+I.classe+'.')}
   catch(err){S.busy=false;saveCache();S.err=(n?n+' élèves ont été ajoutés, mais la suite a échoué : ':'')+(estReseau(err)?'pas de réseau.':msgErreur(err));if(n){I.lignes=null}render(true)}
 }
@@ -624,6 +640,230 @@ function imprimer(mode,seul){
   document.getElementById('print').innerHTML=h;
   document.getElementById('pagefmt').textContent='@page{size:A4 '+(mode===2?'landscape':'portrait')+';margin:8mm}';
   setTimeout(()=>window.print(),60);
+}
+
+/* ----- Messages aux parents (directeur et secrétariat) -----
+   Rien ne part tout seul : chaque message est envoyé depuis le WhatsApp du téléphone utilisé.
+   - Devoirs : image de la note + message (élève absent = pas de message ; la composition n'est jamais envoyée).
+   - Résultats du trimestre : image avec la moyenne et le rang, et invitation à venir signer le bulletin.
+   - Suivi : trois devoirs de suite sous 10/20, toutes matières (absences sautées).
+   - Encouragements : trois bonnes notes de suite (16/20, 13/20 en Rédaction) ; moyenne en hausse de 2 points.
+   Chaque envoi est noté dans la base pour savoir quels parents ont déjà été prévenus. */
+S.msg={classe:null,envD:{},envB:{},suivis:{},charge:{},manque:false,err:'',evalId:null,busy:false,pret:null};
+function telDigits(t){let d=String(t||'').replace(/\D/g,'');if(d.startsWith('00'))d=d.slice(2);if(d.length===8)d='223'+d;return d.length>=10?d:''}
+const telAff=d=>'+'+String(d).replace(/^223(\d{2})(\d{2})(\d{2})(\d{2})$/,'223 $1 $2 $3 $4');
+const waLink=(tel,msg)=>'https://wa.me/'+telDigits(tel)+(msg?'?text='+encodeURIComponent(msg):'');
+const slug=s=>String(s||'').normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/[^A-Za-z0-9]+/g,'_').replace(/^_+|_+$/g,'');
+const dateLong=d=>d&&/^\d{4}-\d{2}-\d{2}/.test(d)?d.slice(8,10)+'/'+d.slice(5,7)+'/'+d.slice(0,4):'';
+const signature=()=>S.directeur?'Le Directeur, '+S.directeur:'La Direction';
+const enfantTxt=e=>(e.prenom||'')+' '+(e.nom||'').toUpperCase()+', '+classeLong(e.classe)+' '+repart(e.classe);
+const bonjour=e=>'Bonjour'+(e.parent_nom?' '+e.parent_nom:'')+',\n'+S.ecole+'\n\n';
+const ilElle=e=>e.sexe==='F'?'elle':'lui';
+function msgDevoir(e,d,n){return bonjour(e)+'Votre enfant '+enfantTxt(e)+', a obtenu *'+fmtN(n)+'/20* au devoir de *'+matName(d.matiere)+'*'+(d.date?' du '+dateLong(d.date):'')+'.\nAppréciation : '+appr(n)+'\n\nMerci de prendre la copie avec l\'enfant pour la signer.\n\n'+signature()}
+const notes3=(e,devs)=>devs.map(d=>matName(d.matiere)+' : '+fmtN(noteDe(d,e.id))+'/20').join(', ');
+function msgSuivi(e,devs){return bonjour(e)+'Votre enfant '+enfantTxt(e)+', a obtenu trois notes de suite en dessous de 10/20 aux derniers devoirs ('+notes3(e,devs)+').\n'+(e.sexe==='F'?'Elle':'Il')+' a besoin de plus de suivi et d\'encadrement à la maison. Nous vous invitons à passer à l\'école pour en parler avec nous.\n\n'+signature()}
+function msgEncour(e,devs){return bonjour(e)+'Nous avons le plaisir de vous informer que votre enfant '+enfantTxt(e)+', a obtenu trois bonnes notes de suite aux derniers devoirs ('+notes3(e,devs)+').\nFélicitations à '+ilElle(e)+' ! Continuez à l\'encourager à la maison.\n\n'+signature()}
+function msgProg(e,t,avant,apres){return bonjour(e)+'Votre enfant '+enfantTxt(e)+', a bien progressé : sa moyenne est passée de '+fmt(avant)+' au '+trimName(t-1)+' à '+fmt(apres)+' au '+trimName(t)+'.\nFélicitations à '+ilElle(e)+' pour ses efforts ! Continuez à l\'encourager à la maison.\n\n'+signature()}
+function msgResultats(e,t,r,eff){return bonjour(e)+'Voici les résultats du '+trimName(t)+' ('+S.annee+') de '+enfantTxt(e)+'.\n\nMoyenne : *'+fmt3(r.b.moyGen)+'/20*\nRang : *'+rangTxt(r.rang,r.ex,e.sexe)+'* sur '+eff+' élèves\n\nLe bulletin complet est à l\'école. Merci de passer pour le signer.\n\n'+signature()}
+
+/* Notes de devoir, alertes de suivi, encouragements */
+function devoirsAnnee(c){return vueEvals().filter(e=>e.type==='devoir'&&e.classe===c&&(e.annee||S.annee)===S.annee).sort((a,b)=>String(a.date||'').localeCompare(b.date||'')||String(a.cree_le||'').localeCompare(b.cree_le||''))}
+function noteDe(d,eid){const x=(vueNotes(d.id)||{})[eid];return x&&num(x.note)?x.note:null}
+const seuilBonne=mid=>slug(matName(mid)).toLowerCase().includes('redaction')?13:16;
+function series(c,test,pref){
+  const ds=devoirsAnnee(c),out=[];
+  elevesOf(c).forEach(e=>{let s=[];ds.forEach(d=>{const v=noteDe(d,e.id);if(v==null)return;
+    if(test(v,d)){s.push(d);if(s.length===3){out.push({e,devs:s,dernier:d,cle:pref+S.annee+'_'+e.id+'_'+d.id});s=[]}}else s=[]})});
+  return out.sort((a,b)=>String(b.dernier.date||'').localeCompare(a.dernier.date||'')||String(b.dernier.cree_le||'').localeCompare(a.dernier.cree_le||''));
+}
+const alertesSuivi=c=>series(c,v=>v<10,'suivi_');
+const encouragements=c=>series(c,(v,d)=>v>=seuilBonne(d.matiere),'enc_');
+const bulComplet=b=>b.nbMat>0&&b.lines.every(l=>l.disp||(l.moy!=null&&!l.incomplet));
+function progressions(c,t){
+  if(t<2)return [];const mats=matsFor(c),a=indexClasse(c,t-1),b=indexClasse(c,t);
+  return elevesOf(c).map(e=>{const x=bulletinData(e,t-1,mats,a),y=bulletinData(e,t,mats,b);
+    if(!bulComplet(x)||!bulComplet(y))return null;
+    return Math.round((y.moyGen-x.moyGen)*1000)>=2000?{type:'prog',e,t,avant:x.moyGen,apres:y.moyGen,devs:[],cle:'prog_'+S.annee+'_'+e.id+'_T'+t}:null}).filter(Boolean);
+}
+
+/* Chargement : notes de la classe et envois déjà faits */
+const tableManque=e=>!!e&&(e.code==='PGRST205'||e.code==='42P01'||e.code==='42501'||/could not find the table|does not exist/i.test(String(e.message||'')));
+async function parPaquets(ids,f){let out=[];for(let i=0;i<ids.length;i+=80)out=out.concat(await f(ids.slice(i,i+80)));return out}
+async function chargerMessages(){
+  if(!isBureau()||!sb)return;const M=S.msg,c=M.classe;if(!c)return;
+  try{
+    const ids=S.evals.filter(e=>e.classe===c&&!S.notes[e.id]).map(e=>e.id);
+    if(ids.length){await chargerNotes(ids);saveCache()}
+    const devIds=S.evals.filter(e=>e.classe===c&&e.type==='devoir').map(e=>e.id),elIds=elevesOf(c).map(e=>e.id);
+    const [ed,eb,su]=await Promise.all([
+      parPaquets(devIds,p=>fetchAll(()=>sb.from('envois_devoirs').select('evaluation_id,eleve_id,le').in('evaluation_id',p))),
+      parPaquets(elIds,p=>fetchAll(()=>sb.from('envois_bulletins').select('trimestre,eleve_id,le').eq('annee',S.annee).in('eleve_id',p))),
+      fetchAll(()=>sb.from('suivis').select('cle,le').eq('annee',S.annee))]);
+    devIds.forEach(id=>M.envD[id]={});ed.forEach(r=>(M.envD[r.evaluation_id]||(M.envD[r.evaluation_id]={}))[r.eleve_id]=r.le);
+    eb.forEach(r=>M.envB[r.trimestre+'_'+r.eleve_id]=r.le);su.forEach(r=>M.suivis[r.cle]=r.le);
+    M.charge[c]=true;M.manque=false;M.err='';S.online=true;
+  }catch(e){if(estReseau(e))S.online=false;else if(tableManque(e))M.manque=true;else M.err=msgErreur(e)}
+  if(S.tab==='messages'&&S.view!=='eleve')render();
+}
+async function noterEnvoi(kind,eid,x){
+  const M=S.msg,le=new Date().toISOString();let q;
+  if(kind==='dev'){(M.envD[M.evalId]||(M.envD[M.evalId]={}))[eid]=le;q=()=>sb.from('envois_devoirs').upsert({evaluation_id:M.evalId,eleve_id:eid,le},{onConflict:'evaluation_id,eleve_id'})}
+  else if(kind==='bul'){M.envB[S.trim+'_'+eid]=le;q=()=>sb.from('envois_bulletins').upsert({annee:S.annee,trimestre:S.trim,eleve_id:eid,le},{onConflict:'annee,trimestre,eleve_id'})}
+  else{M.suivis[x.cle]=le;q=()=>sb.from('suivis').upsert({cle:x.cle,annee:S.annee,eleve_id:eid,devoirs:x.devs,le},{onConflict:'cle'})}
+  setTimeout(()=>render(true),0); // après l'ouverture du lien WhatsApp
+  try{chk(await q())}
+  catch(e){if(tableManque(e)){M.manque=true;render(true)}else toast(estReseau(e)?'Pas de réseau : cet envoi n\'est noté que sur ce téléphone.':'Envoi non noté : '+msgErreur(e))}
+}
+
+/* Images envoyées aux parents */
+function loadImg(src){return new Promise(ok=>{if(!src)return ok(null);const i=new Image();i.onload=()=>ok(i);i.onerror=()=>ok(null);i.src=src})}
+async function carteBase(sousTitre){
+  try{await document.fonts.load('700 40px Bitter');await document.fonts.load('600 30px "Source Sans 3"')}catch(_){}
+  const W=1080,H=1200,c=document.createElement('canvas');c.width=W;c.height=H;const x=c.getContext('2d');
+  x.fillStyle='#ffffff';x.fillRect(0,0,W,H);x.fillStyle='#13294b';x.fillRect(0,0,W,18);x.fillRect(0,H-18,W,18);
+  const logo=await loadImg(S.logo);let y=56;
+  if(logo){const k=Math.min(220/logo.width,220/logo.height),w=logo.width*k,h=logo.height*k;x.drawImage(logo,W/2-w/2,y+(220-h)/2,w,h);y+=240}else y+=140; // sans logo : contenu centré
+  x.textAlign='center';
+  const fit=(s,font,size,maxW)=>{let z=size;do{x.font=font.replace('%',z+'px');z-=2}while(x.measureText(s).width>maxW&&z>14)};
+  x.fillStyle='#13294b';fit(S.ecole,'700 % Bitter, Georgia, serif',40,W-120);x.fillText(S.ecole,W/2,y+20);y+=60;
+  x.font='italic 600 32px "Source Sans 3", Arial, sans-serif';x.fillStyle='#5a6678';x.fillText(sousTitre,W/2,y+10);y+=40;
+  x.strokeStyle='#13294b';x.lineWidth=3;x.beginPath();x.moveTo(120,y);x.lineTo(W-120,y);x.stroke();y+=72;
+  const cadre=(bx,by,bw,bh)=>{x.lineWidth=4;x.strokeStyle='#13294b';x.beginPath();if(x.roundRect)x.roundRect(bx,by,bw,bh,24);else x.rect(bx,by,bw,bh);x.stroke()};
+  return {c,x,W,y,fit,cadre};
+}
+function nomEtClasse(K,e){const {x,W,fit}=K;x.fillStyle='#13294b';const nm=(e.prenom||'')+' '+(e.nom||'').toUpperCase();fit(nm,'700 % "Source Sans 3", Arial, sans-serif',56,W-140);x.fillText(nm,W/2,K.y);K.y+=54;
+  x.font='600 34px "Source Sans 3", Arial, sans-serif';x.fillStyle='#5a6678';x.fillText(classeLong(e.classe)+' '+repart(e.classe)+(e.matricule?'  ·  '+e.matricule:''),W/2,K.y);K.y+=60}
+function piedCarte(K,l1,l2){const {x,W}=K;x.fillStyle='#13294b';x.font='700 36px "Source Sans 3", Arial, sans-serif';x.fillText(l1,W/2,K.y);K.y+=48;if(l2){x.fillText(l2,W/2,K.y);K.y+=48}K.y+=16;
+  x.font='italic 32px "Source Sans 3", Arial, sans-serif';x.fillStyle='#5a6678';x.fillText(signature(),W/2,K.y)}
+async function carteNote(e,d,n){
+  const K=await carteBase('Note de devoir');nomEtClasse(K,e);const {x,W}=K,bx=170,bw=W-340,bh=330,y=K.y;K.cadre(bx,y,bw,bh);
+  x.fillStyle='#13294b';x.font='700 40px "Source Sans 3", Arial, sans-serif';x.fillText(matName(d.matiere)+(d.date?'  ·  '+dateLong(d.date):''),W/2,y+70);
+  x.fillStyle=n<10?'#c2352a':'#1d7446';x.font='700 150px Bitter, Georgia, serif';x.fillText(fmtN(n)+'/20',W/2,y+225);
+  x.fillStyle='#13294b';x.font='600 38px "Source Sans 3", Arial, sans-serif';x.fillText('Appréciation : '+appr(n),W/2,y+295);K.y+=bh+86;
+  piedCarte(K,'Merci de prendre la copie avec l\'enfant','pour la signer.');return K.c;
+}
+async function carteResultats(e,t,r,eff){
+  const K=await carteBase('Résultats du '+trimName(t)+' · '+S.annee);nomEtClasse(K,e);const {x,W,fit}=K,gap=40,bw=(W-160-gap)/2,bh=300,y=K.y,m=r.b.moyGen;
+  const boite=(bx,label,val,col,sub)=>{K.cadre(bx,y,bw,bh);x.fillStyle='#5a6678';x.font='700 34px "Source Sans 3", Arial, sans-serif';x.fillText(label,bx+bw/2,y+64);
+    x.fillStyle=col;fit(val,'700 % Bitter, Georgia, serif',112,bw-40);x.fillText(val,bx+bw/2,y+192);x.fillStyle='#13294b';x.font='600 32px "Source Sans 3", Arial, sans-serif';x.fillText(sub,bx+bw/2,y+258)};
+  boite(80,'Moyenne',fmt3(m),m<10?'#c2352a':'#1d7446','sur 20 · '+appr(m));
+  boite(80+bw+gap,'Rang',rangTxt(r.rang,r.ex,e.sexe).replace(' ex æquo',''),'#13294b','sur '+eff+' élèves'+(r.ex?' (ex æquo)':''));
+  K.y+=bh+86;piedCarte(K,'Le bulletin complet est à l\'école.','Merci de passer pour le signer.');return K.c;
+}
+
+/* Préparer un envoi : image + texte de l'élève */
+function ctxRes(c,t){const res=classResults(c,t);return {res,eff:res.length}}
+function preparer(kind,eid){
+  const M=S.msg;
+  if(kind==='dev'){const d=vueEvals().find(x=>x.id===M.evalId);if(!d)return null;const e=elevesOf(d.classe).find(x=>x.id===eid),n=e&&noteDe(d,eid);if(!e||n==null)return null;
+    return {e,msg:msgDevoir(e,d,n),nom:'Note_'+slug(matName(d.matiere))+'_'+slug(nomEleve(e))+'.png',cle:'dev|'+d.id+'|'+eid+'|'+n,carte:()=>carteNote(e,d,n)}}
+  const K=ctxRes(M.classe,S.trim),r=K.res.find(x=>x.e.id===eid);if(!r||!num(r.b.moyGen))return null;
+  return {e:r.e,msg:msgResultats(r.e,S.trim,r,K.eff),nom:'Resultats_T'+S.trim+'_'+slug(nomEleve(r.e))+'.png',cle:'bul|'+S.trim+'|'+eid+'|'+r.b.moyGen+'|'+r.rang+'|'+K.eff,carte:()=>carteResultats(r.e,S.trim,r,K.eff)};
+}
+function telecharger(blob,nom){const a=document.createElement('a');a.href=URL.createObjectURL(blob);a.download=nom;document.body.appendChild(a);a.click();setTimeout(()=>{URL.revokeObjectURL(a.href);a.remove()},2000)}
+async function envoyerImage(kind,eid){
+  const M=S.msg;if(M.busy)return;const P=preparer(kind,eid);if(!P){toast('Cet élève n\'a pas de note à envoyer.');return}
+  M.busy=true;
+  try{
+    let file=M.pret&&M.pret.cle===P.cle?M.pret.file:null;
+    if(!file){const cv=await P.carte(),blob=await new Promise(ok=>cv.toBlob(ok,'image/png'));file=new File([blob],P.nom,{type:'image/png'})}
+    if(navigator.canShare&&navigator.canShare({files:[file]})){
+      try{await navigator.share({files:[file],text:P.msg});M.pret=null;noterEnvoi(kind,eid)}
+      catch(err){if(err&&err.name==='NotAllowedError'){M.pret={cle:P.cle,file};toast('Image prête : touchez encore « Image + message ».')}
+        else if(!(err&&err.name==='AbortError'))toast('Partage impossible : '+(err&&err.message||err))}
+    }else{
+      // Téléphone ou navigateur sans partage d'image : l'image est enregistrée, puis la discussion du parent s'ouvre
+      telecharger(file,P.nom);const w=window.open(waLink(P.e.parent_tel,P.msg),'_blank');
+      toast(w?'Image enregistrée : joignez-la dans WhatsApp avec le trombone 📎.':'Image enregistrée. Touchez « Message seul » pour ouvrir WhatsApp.');noterEnvoi(kind,eid)}
+  }finally{M.busy=false}
+}
+/* Aperçu de l'image pour le premier élève de la liste */
+async function apercu(){
+  const im=document.getElementById('msgPrev');if(!im)return;const id=im.dataset.eid,kind=S.view==='msg-dev'?'dev':'bul';
+  const P=preparer(kind,id);if(!P)return;const k=P.cle+'|'+(S.logo||'').length+'|'+S.directeur+'|'+S.ecole;
+  if(apercu.k!==k){const cv=await P.carte();apercu.k=k;apercu.url=cv.toDataURL('image/jpeg',.82)}
+  const im2=document.getElementById('msgPrev');if(im2)im2.src=apercu.url;
+}
+/* Contacts des parents d'une classe, à importer une fois dans le téléphone */
+function contactsVcf(c){
+  const els=elevesOf(c).filter(e=>telDigits(e.parent_tel));if(!els.length){toast('Aucun numéro de parent en '+c+'.');return}
+  const vc=s=>String(s||'').replace(/([\\,;])/g,'\\$1');
+  const v=els.map(e=>{const n='Parent '+nomEleve(e)+' '+c.replace(/\s/g,'');return ['BEGIN:VCARD','VERSION:3.0','FN:'+vc(n),'N:'+vc(n)+';;;;','TEL;TYPE=CELL:+'+telDigits(e.parent_tel),'NOTE:'+vc((e.parent_nom?e.parent_nom+' - ':'')+S.ecole),'END:VCARD'].join('\r\n')}).join('\r\n')+'\r\n';
+  telecharger(new Blob([v],{type:'text/vcard'}),'Parents_'+c.replace(/\s/g,'')+'.vcf');
+  toast(els.length+' contact'+(els.length>1?'s':'')+' : ouvrez le fichier téléchargé pour les ajouter au téléphone.');
+}
+
+/* Affichage */
+function boutonsEnvoi(kind,e,deja){
+  const tel=telDigits(e.parent_tel),P=tel?preparer(kind,e.id):null;
+  if(!tel)return '<span class="row"><button class="btn sm" data-act="el-edit" data-id="'+e.id+'">Ajouter le n° du parent</button></span>';
+  return '<span class="row"><button class="btn sm wa" data-act="msg-img" data-k="'+kind+'" data-eid="'+e.id+'">'+(deja?'Renvoyer':'Image + message')+'</button>'+
+    (P?'<a class="btn sm" href="'+esc(waLink(e.parent_tel,P.msg))+'" target="_blank" rel="noopener" data-act="msg-txt" data-k="'+kind+'" data-eid="'+e.id+'">Message seul</a>':'')+'</span>';
+}
+function ligneAlerte(a,mode){
+  const e=a.e,tel=telDigits(e.parent_tel),fait=S.msg.suivis[a.cle],prog=a.type==='prog';
+  const msg=mode==='suivi'?msgSuivi(e,a.devs):prog?msgProg(e,a.t,a.avant,a.apres):msgEncour(e,a.devs);
+  const det=prog?'T'+(a.t-1)+' : '+fmt(a.avant)+' → T'+a.t+' : <b class="hi">'+fmt(a.apres)+'</b>':a.devs.map(d=>esc(matName(d.matiere))+' <b class="'+(mode==='suivi'?'low':'hi')+'">'+fmtN(noteDe(d,e.id))+'</b>').join(' · ');
+  return '<div class="li m"><span class="no small">'+(prog?'T'+a.t:dateFr(a.dernier.date))+'</span><span><b>'+esc(nomEleve(e))+'</b>'+(fait?' <span class="badge ok">envoyé</span>':'')+'<br><span class="small">'+det+'</span></span><span class="row">'+
+    (tel?'<a class="btn sm wa" href="'+esc(waLink(e.parent_tel,msg))+'" target="_blank" rel="noopener" data-act="msg-suivi" data-cle="'+esc(a.cle)+'" data-eid="'+e.id+'" data-devs="'+a.devs.map(d=>d.id).join(',')+'">'+(fait?'Renvoyer':mode==='suivi'?'Prévenir le parent':'Féliciter le parent')+'</a>':'<button class="btn sm" data-act="el-edit" data-id="'+e.id+'">Ajouter le n° du parent</button>')+'</span></div>';
+}
+function carteAlertes(items,mode,titre,expl){
+  if(!items.length)return '';const af=items.filter(a=>!S.msg.suivis[a.cle]),faits=items.filter(a=>S.msg.suivis[a.cle]);
+  let h='<div class="card '+(mode==='suivi'?'suivi':'encour')+'"><h2>'+titre+(af.length?' · '+af.length:'')+'</h2><p class="small">'+expl+'</p>';
+  h+=af.length?'<div class="list">'+af.map(a=>ligneAlerte(a,mode)).join('')+'</div>':'<p class="small"><b>Tous les parents concernés ont reçu le message.</b></p>';
+  if(faits.length)h+='<details><summary class="small">Déjà envoyés · '+faits.length+'</summary><div class="list" style="margin-top:8px">'+faits.map(a=>ligneAlerte(a,mode)).join('')+'</div></details>';
+  return h+'</div>';
+}
+const noticeScript=()=>'<div class="notice warn"><b>Messages pas encore activés dans la base</b><p class="small">Il faut exécuter une fois le script « Messages aux parents » dans l\'éditeur SQL de Supabase. En attendant, les messages partent quand même, mais la page ne peut pas retenir qui a déjà été prévenu.</p></div>';
+function viewMessages(){
+  const M=S.msg,c=CLASSES.includes(M.classe)?M.classe:(S.classe||CLASSES[0]);M.classe=c;
+  const els=elevesOf(c),st=els.filter(e=>!telDigits(e.parent_tel)).length;
+  let h='<div class="card"><h2>Messages aux parents</h2><div class="chips" role="group" aria-label="Classe">'+CLASSES.map(k=>'<button class="chip" data-act="msgcl" data-c="'+k+'" aria-pressed="'+(k===c)+'">'+k+'</button>').join('')+'</div>'+trimChips()+
+    '<p class="small muted">'+els.length+' élève'+(els.length>1?'s':'')+' en '+esc(c)+(st?' · <b>'+st+' sans numéro de parent</b>':'')+'</p>'+
+    '<div class="row"><button class="btn sm" data-act="msg-vcf">Contacts des parents de '+esc(c)+'</button></div>'+
+    '<p class="small muted">Ce bouton crée un fichier de contacts (« Parent NOM Prénom '+esc(c.replace(/\s/g,''))+' ») à ouvrir une fois sur le téléphone qui envoie les messages : dans WhatsApp, chaque parent se retrouve alors en tapant le nom de l\'élève.</p></div>';
+  if(M.manque)h+=noticeScript();else if(M.err)h+='<div class="notice warn small">'+esc(M.err)+'</div>';
+  if(!els.length)return h+'<div class="notice warn"><b>Aucun élève en '+esc(c)+'</b><p class="small">Ajoutez d\'abord les élèves de la classe, avec le numéro WhatsApp du parent.</p><div><button class="btn sm" data-act="go-eleves" data-c="'+esc(c)+'">Ajouter les élèves de '+esc(c)+'</button></div></div>';
+  if(!M.charge[c]&&!M.manque&&!M.err)h+='<p class="small muted">'+(S.online?'Chargement des notes de la classe…':'Hors connexion : les envois déjà faits s\'afficheront au retour du réseau.')+'</p>';
+  h+=carteAlertes(alertesSuivi(c),'suivi','Suivi à faire','Ces élèves ont eu trois devoirs de suite en dessous de 10/20 (toutes matières, absences non comptées). Le message demande au parent plus de suivi et l\'invite à passer à l\'école.');
+  h+=carteAlertes([...encouragements(c),...progressions(c,S.trim)],'enc','Encouragements à envoyer','Trois bonnes notes de devoir de suite (16/20 et plus, 13/20 et plus en Rédaction), ou moyenne en hausse d\'au moins 2 points sur le trimestre précédent.');
+  const devs=vueEvals().filter(e=>e.type==='devoir'&&e.classe===c&&e.trimestre===S.trim&&(e.annee||S.annee)===S.annee).sort((a,b)=>String(b.date||'').localeCompare(a.date||'')||String(b.cree_le||'').localeCompare(a.cree_le||''));
+  h+='<h2>Notes de devoir · '+trimName(S.trim)+'</h2>';
+  if(!devs.length)h+='<p class="small muted">Aucun devoir saisi en '+esc(c)+' ce trimestre.</p>';
+  else h+='<div class="list">'+devs.map(d=>{const av=els.filter(e=>noteDe(d,e.id)!=null),env=av.filter(e=>(M.envD[d.id]||{})[e.id]).length;
+    return '<div class="li"><span class="no small">'+dateFr(d.date)+'</span><span><b>'+esc(matName(d.matiere))+' · '+esc(d.titre||'Devoir')+'</b><br><span class="small '+(av.length&&env>=av.length?'hi':'muted')+'">Parents prévenus : '+env+'/'+av.length+'</span></span><button class="btn sm'+(env<av.length?' wa':'')+'" data-act="msg-dev" data-id="'+d.id+'"'+(av.length?'':' disabled')+'>'+(env<av.length?'Prévenir':'Revoir')+'</button></div>'}).join('')+'</div>';
+  const K=ctxRes(c,S.trim),avecMoy=K.res.filter(r=>num(r.b.moyGen)),envB=avecMoy.filter(r=>M.envB[S.trim+'_'+r.e.id]).length;
+  h+='<h2>Résultats du '+trimName(S.trim)+'</h2><div class="list"><div class="li"><span class="no small"></span><span><b>Moyenne et rang de chaque élève</b><br><span class="small muted">'+(avecMoy.length?'Envoyés : '+envB+'/'+avecMoy.length:'Pas encore de moyenne ce trimestre')+'</span></span><button class="btn sm'+(avecMoy.length&&envB<avecMoy.length?' wa':'')+'" data-act="msg-bul"'+(avecMoy.length?'':' disabled')+'>Envoyer</button></div></div>';
+  return h+'<p class="small muted">Les notes de composition ne sont jamais envoyées aux parents. Un élève absent à un devoir ne reçoit pas de message.</p>';
+}
+function aideEnvoi(){
+  return '<ul class="steps small"><li><b>Image + message</b> : choisissez WhatsApp, puis le parent (tapez le nom de l\'élève si les contacts des parents sont enregistrés), et envoyez.</li><li><b>Message seul</b> : ouvre directement la discussion du parent avec le texte, sans image. Utile si le parent n\'est pas dans les contacts : envoyez d\'abord le message, puis l\'image le retrouvera en haut de la liste.</li></ul>';
+}
+function viewMsgDevoir(){
+  const M=S.msg,d=vueEvals().find(x=>x.id===M.evalId);if(!d){S.view=null;return viewMessages()}
+  const els=elevesOf(d.classe).filter(e=>noteDe(d,e.id)!=null),env=M.envD[d.id]||{},n=els.filter(e=>env[e.id]).length;
+  let h='<button class="btn ghost" data-act="msg-back">← Messages</button>';
+  if(M.manque)h+=noticeScript();
+  const nouv=alertesSuivi(d.classe).filter(a=>a.dernier.id===d.id),bons=encouragements(d.classe).filter(a=>a.dernier.id===d.id);
+  h+=carteAlertes(nouv,'suivi','Suivi à faire','Avec ce devoir, '+(nouv.length>1?'ces élèves ont':'cet élève a')+' trois notes de suite en dessous de 10/20.');
+  h+=carteAlertes(bons,'enc','Encouragements à envoyer','Avec ce devoir, '+(bons.length>1?'ces élèves ont':'cet élève a')+' trois bonnes notes de suite.');
+  h+='<div class="card"><h2>'+esc(matName(d.matiere))+' · '+esc(d.titre||'Devoir')+'</h2><p class="small muted">'+esc(d.classe)+' · '+(d.date?dateLong(d.date)+' · ':'')+'Parents prévenus : <b>'+n+'/'+els.length+'</b></p>'+aideEnvoi()+
+    (els.length?'<div class="prev"><span class="small muted">Aperçu de l\'image (premier élève)</span><img id="msgPrev" data-eid="'+els[0].id+'" alt="Aperçu de la fiche de note"></div>':'')+'</div>';
+  h+='<div class="list">'+els.map((e,i)=>{const v=noteDe(d,e.id),tel=telDigits(e.parent_tel);
+    return '<div class="li m"><span class="no">'+(i+1)+'</span><span><b>'+esc(nomEleve(e))+'</b> · <span class="'+cls(v)+'">'+fmtN(v)+'/20</span>'+(env[e.id]?' <span class="badge ok">envoyé</span>':'')+'<br><span class="small muted">'+(tel?telAff(tel):'Pas de numéro WhatsApp')+'</span></span>'+boutonsEnvoi('dev',e,!!env[e.id])+'</div>'}).join('')+'</div>';
+  return h;
+}
+function viewMsgBul(){
+  const M=S.msg,c=M.classe,K=ctxRes(c,S.trim),liste=K.res.filter(r=>num(r.b.moyGen)).sort((a,b)=>String(a.e.nom).localeCompare(b.e.nom,'fr')||String(a.e.prenom).localeCompare(b.e.prenom,'fr'));
+  const n=liste.filter(r=>M.envB[S.trim+'_'+r.e.id]).length,ctl=controle(c,S.trim);
+  let h='<button class="btn ghost" data-act="msg-back">← Messages</button>';
+  if(M.manque)h+=noticeScript();
+  if(ctl.length)h+='<div class="notice warn"><b>Des notes manquent encore en '+esc(c)+'</b><p class="small">'+ctl.map(x=>esc(x.m.nom)+' : '+x.manque+' élève'+(x.manque>1?'s':'')).join(' · ')+'. Les moyennes et les rangs envoyés seraient faux : attendez que tout soit saisi.</p></div>';
+  h+='<div class="card"><h2>Résultats du '+trimName(S.trim)+' · '+esc(c)+'</h2><p class="small muted">Envoyés : <b>'+n+'/'+liste.length+'</b>. Le parent reçoit la moyenne et le rang, avec l\'invitation à venir signer le bulletin à l\'école.</p>'+aideEnvoi()+
+    (liste.length?'<div class="prev"><span class="small muted">Aperçu de l\'image (premier élève)</span><img id="msgPrev" data-eid="'+liste[0].e.id+'" alt="Aperçu de la fiche de résultats"></div>':'')+'</div>';
+  h+='<div class="list">'+liste.map((r,i)=>{const e=r.e,tel=telDigits(e.parent_tel),f=M.envB[S.trim+'_'+e.id];
+    return '<div class="li m"><span class="no">'+(i+1)+'</span><span><b>'+esc(nomEleve(e))+'</b> · <span class="'+cls(r.b.moyGen)+'">'+fmt(r.b.moyGen)+'</span> · '+rangTxt(r.rang,r.ex,e.sexe)+(f?' <span class="badge ok">envoyé</span>':'')+'<br><span class="small muted">'+(tel?telAff(tel):'Pas de numéro WhatsApp')+'</span></span>'+boutonsEnvoi('bul',e,!!f)+'</div>'}).join('')+'</div>';
+  return h;
 }
 
 /* ----- Réglages (directeur seul) : comptes, classes et matières des enseignants, matières, école ----- */
@@ -822,7 +1062,7 @@ document.addEventListener('submit',async ev=>{
 document.addEventListener('click',async ev=>{
   const b=ev.target.closest('[data-act]');if(!b||b.tagName==='SELECT')return;
   const a=b.dataset.act;
-  if(a==='tab'){S.tab=b.dataset.k;S.view=null;if(S.tab==='bulletins'&&!S.bulClasse)S.bulClasse=S.classe||CLASSES[0];render(true);if(S.tab==='direct')chargerFeed();if(S.tab==='bulletins')chargerBulletins();if(S.tab==='reglages'){S.reg.form=null;chargerReglages()}return}
+  if(a==='tab'){S.tab=b.dataset.k;S.view=null;if(S.tab==='bulletins'&&!S.bulClasse)S.bulClasse=S.classe||CLASSES[0];if(S.tab==='messages'){if(!S.msg.classe)S.msg.classe=S.classe||CLASSES[0];render(true);window.scrollTo(0,0);chargerMessages();return}render(true);if(S.tab==='direct')chargerFeed();if(S.tab==='bulletins')chargerBulletins();if(S.tab==='reglages'){S.reg.form=null;chargerReglages()}return}
   if(a==='rg-sec'){S.reg.sec=b.dataset.k;S.reg.err='';render(true);if(b.dataset.k==='ens'&&!S.reg.etat)chargerReglages();return}
   if(a==='rg-new-compte')return ouvrirCompte(null);
   if(a==='rg-edit-compte')return ouvrirCompte(b.dataset.id);
@@ -837,6 +1077,14 @@ document.addEventListener('click',async ev=>{
   if(a==='rg-del-mat-yes'){if(!S.reg.busy)retirerMatiere();return}
   if(a==='rg-save-eco'){if(!S.reg.busy)enregistrerEcole();return}
   if(a==='rg-logo-del'){S.reg.eco.logo='';render(true);return}
+  if(a==='msgcl'){S.msg.classe=b.dataset.c;S.view=null;render(true);chargerMessages();return}
+  if(a==='msg-dev'){S.msg.evalId=b.dataset.id;S.view='msg-dev';render(true);window.scrollTo(0,0);return}
+  if(a==='msg-bul'){S.view='msg-bul';render(true);window.scrollTo(0,0);return}
+  if(a==='msg-back'){S.view=null;render(true);window.scrollTo(0,0);return}
+  if(a==='msg-vcf'){contactsVcf(S.msg.classe);return}
+  if(a==='msg-img'){envoyerImage(b.dataset.k,b.dataset.eid);return}
+  if(a==='msg-txt'){noterEnvoi(b.dataset.k,b.dataset.eid);return} // le lien ouvre WhatsApp
+  if(a==='msg-suivi'){noterEnvoi('suivi',b.dataset.eid,{cle:b.dataset.cle,devs:b.dataset.devs?b.dataset.devs.split(','):[]});return}
   if(a==='bulcl'){S.bulClasse=b.dataset.c;render(true);chargerBulletins();return}
   if(a==='bul'){S.bulId=b.dataset.id;S.view='bulletin';render(true);window.scrollTo(0,0);return}
   if(a==='bul-close'){S.view=null;render(true);return}
@@ -856,7 +1104,7 @@ document.addEventListener('click',async ev=>{
   if(a==='elcl'){S.elClasse=b.dataset.c;render(true);return}
   if(a==='el-new')return ouvrirEleve(null);
   if(a==='el-edit')return ouvrirEleve(b.dataset.id);
-  if(a==='el-close'){S.view=null;S.elDraft=null;S.imp=null;S.confirm=null;S.err='';render(true);return}
+  if(a==='el-close'){S.view=S.elDraft&&S.tab==='messages'?S.vueAvant||null:null;S.elDraft=null;S.imp=null;S.confirm=null;S.err='';render(true);return}
   if(a==='el-save'){if(!S.busy)enregistrerEleve(false);return}
   if(a==='el-del'){S.confirm='el-del';render(true);return}
   if(a==='el-del-no'){S.confirm=null;render(true);return}
@@ -916,7 +1164,7 @@ async function chargerSelection(){
 /* ===== Démarrage et mises à jour ===== */
 async function rafraichir(){
   if(!sb||!S.uid)return;
-  try{await chargerTout();await synchroniser()}
+  try{await chargerTout();await synchroniser();if(S.tab==='messages')chargerMessages()}
   catch(e){
     if(e.code==='PROFIL'){lsDel(kCache());await sb.auth.signOut({scope:'local'}).catch(()=>{});S.uid=null;S.profil=null;S.charge=false;S.err='Ce compte n\'a pas accès aux bulletins (ou il a été désactivé). Voyez la direction.'}
     else if(estReseau(e))S.online=false;
