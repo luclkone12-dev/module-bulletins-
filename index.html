@@ -31,8 +31,8 @@ button,input,select{font:inherit;color:inherit}
 .status{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:.85rem;color:var(--head-muted)}
 .dot{width:9px;height:9px;border-radius:50%;background:var(--good);display:inline-block}
 .dot.off{background:var(--warn)}
-.tabs{display:flex;gap:2px}
-.tabs button{border:0;background:transparent;color:var(--head-muted);padding:8px 12px;font-weight:600;border-bottom:3px solid transparent;cursor:pointer}
+.tabs{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none}
+.tabs button{border:0;background:transparent;color:var(--head-muted);padding:8px 10px;font-weight:600;border-bottom:3px solid transparent;cursor:pointer;white-space:nowrap}
 .tabs button[aria-selected="true"]{color:var(--head-ink);border-bottom-color:var(--accent)}
 main{max-width:860px;margin:0 auto;padding:16px 16px 56px;display:grid;gap:14px}
 h2{font-family:var(--display);font-size:1.15rem;margin:0}
@@ -84,6 +84,39 @@ td input[type=checkbox]{width:22px;height:22px}
 .feed .li{grid-template-columns:3.4rem 1fr}
 .feed .t{font-variant-numeric:tabular-nums;color:var(--muted);font-size:.85rem;text-align:left}
 .confirm{display:flex;gap:8px;flex-wrap:wrap;align-items:center;padding:10px;border-radius:8px;background:var(--warn-soft)}
+/* Bulletin papier : blanc et encre noire dans les deux thèmes */
+.doc-wrap{overflow-x:auto;border:1px solid var(--line);border-radius:6px;background:#fff}
+.doc{min-width:640px;background:#fff;color:#111;padding:20px 18px;font-family:"Times New Roman",Times,serif;font-size:14px;display:grid;gap:12px;align-content:start}
+.doc table{border-collapse:collapse;width:100%;border:1.5px solid #111}
+.doc th,.doc td{border:1px solid #111;padding:5px 7px;color:#111;background:#fff;font-size:inherit;line-height:1.25;text-transform:none;letter-spacing:0;font-weight:400}
+.doc th{font-weight:700;text-align:center;background:#ececec}
+.doc th.l{text-align:left}
+.doc td.c{text-align:center}
+.doc td.lb{font-weight:700}
+.doc .dhead{display:grid;grid-template-columns:80px 1fr 80px;align-items:center;gap:10px;text-align:center}
+.doc .dhead img{width:80px;height:80px;object-fit:contain}
+.doc .dhead h3{font-family:var(--body);font-size:1.25em;letter-spacing:.03em;margin:0 0 2px}
+.doc .it{font-style:italic}.doc .sm{font-size:.86em}
+.doc .dfoot{display:grid;grid-template-columns:1fr 1fr;gap:18px;align-items:start}
+.doc .dcol{display:grid;gap:10px}
+.doc .sigcell{height:70px;vertical-align:top}
+.doc .cachet{height:95px;vertical-align:top;font-style:italic;font-size:.86em}
+#print{display:none}
+@media print{
+  body{background:#fff}
+  body>*:not(#print){display:none!important}
+  #print{display:block}
+  .feuille{break-after:page;page-break-after:always}
+  .feuille:last-child{break-after:auto;page-break-after:auto}
+  .feuille.deux{display:flex;gap:8mm;height:192mm;overflow:hidden}
+  .feuille.deux .doc{flex:1 1 0;min-width:0;padding:0;font-size:8.6pt;gap:2.2mm}
+  .feuille.deux .doc th,.feuille.deux .doc td{padding:.6mm 1.2mm}
+  .feuille.deux .doc .dhead{grid-template-columns:16mm 1fr 16mm}
+  .feuille.deux .doc .dhead img{width:16mm;height:16mm}
+  .feuille.deux .doc .sigcell{height:12mm}.feuille.deux .doc .cachet{height:18mm}
+  .feuille.un .doc{min-width:0;padding:0;font-size:11pt}
+  .doc,.doc th,.doc td{-webkit-print-color-adjust:exact;print-color-adjust:exact}
+}
 .toast{position:fixed;left:50%;bottom:calc(16px + env(safe-area-inset-bottom,0px));transform:translateX(-50%);background:var(--ink);color:var(--paper);padding:10px 16px;border-radius:8px;font-weight:600;z-index:20;max-width:calc(100% - 32px)}
 </style>
 </head>
@@ -91,6 +124,8 @@ td input[type=checkbox]{width:22px;height:22px}
 <header class="top"><div class="top-in" id="head"><div class="brand"><h1>École Néhémie de Katibougou</h1></div></div></header>
 <main id="app"><div class="card"><h2>Chargement…</h2></div></main>
 <div id="toast" class="toast" hidden></div>
+<div id="print"></div>
+<style id="pagefmt">@page{size:A4 landscape;margin:8mm}</style>
 
 <script>
 /* ===== Configuration (clé publique : les données sont protégées par les règles de la base) ===== */
@@ -102,7 +137,7 @@ const CLASSES=['7e A','7e B','8e A','8e B','9e A','9e B'];
 const sb=(window.supabase&&window.supabase.createClient)?window.supabase.createClient(SB_URL,SB_KEY,{auth:{persistSession:true,autoRefreshToken:true,storageKey:'bn-auth'}}):null;
 
 const S={uid:null,profil:null,annee:'2026-2027',ecole:'École Néhémie de Katibougou',matieres:[],aff:[],eleves:[],evals:[],notes:{},verrous:[],noms:{},
-  classe:null,matiere:null,trim:1,tab:'saisie',view:null,draft:null,confirm:null,err:'',
+  classe:null,matiere:null,trim:1,tab:'saisie',view:null,draft:null,confirm:null,err:'',bulClasse:null,bulId:null,bulCharge:{},directeur:'',logo:'',
   feed:[],feedAt:null,feedClasse:'',feedErr:'',online:navigator.onLine,syncing:false,lastSync:null,charge:false,busy:false};
 const $app=document.getElementById('app');
 
@@ -152,9 +187,9 @@ async function chargerTout(){
   if(!pr||!pr.actif){const e=new Error('PROFIL');e.code='PROFIL';throw e}
   S.profil=pr;
   const rg=chk(await sb.from('reglages').select('valeur').eq('cle','ecole').maybeSingle());
-  if(rg&&rg.valeur){if(rg.valeur.annee)S.annee=rg.valeur.annee;if(rg.valeur.nom)S.ecole=rg.valeur.nom}
+  if(rg&&rg.valeur){if(rg.valeur.annee)S.annee=rg.valeur.annee;if(rg.valeur.nom)S.ecole=rg.valeur.nom;S.directeur=rg.valeur.directeur||'';S.logo=rg.valeur.logo||''}
   const [mat,aff,el,ev,vr]=await Promise.all([
-    fetchAll(()=>sb.from('matieres').select('id,nom,niveaux,ordre').order('ordre').order('nom')),
+    fetchAll(()=>sb.from('matieres').select('id,nom,niveaux,coefs,ordre').order('ordre').order('nom')),
     fetchAll(()=>sb.from('affectations').select('user_id,classe,matiere,annee').eq('annee',S.annee)),
     fetchAll(()=>sb.from('eleves').select('id,matricule,nom,prenom,sexe,classe').order('nom').order('prenom')),
     fetchAll(()=>sb.from('evaluations').select('id,annee,classe,matiere,trimestre,type,titre,date,cree_le').eq('annee',S.annee).order('cree_le')),
@@ -164,7 +199,7 @@ async function chargerTout(){
   choisirDefaut();
   if(isBureau()){
     const pf=await fetchAll(()=>sb.from('profils').select('id,nom'));S.noms={};pf.forEach(p=>S.noms[p.id]=p.nom);
-    const sel=ev.filter(e=>e.classe===S.classe&&e.matiere===S.matiere).map(e=>e.id);if(sel.length)await chargerNotes(sel);
+    const sel=ev.filter(e=>(e.classe===S.classe&&e.matiere===S.matiere)||(S.tab==='bulletins'&&e.classe===S.bulClasse)).map(e=>e.id);if(sel.length)await chargerNotes(sel);
   }else await chargerNotes(ev.map(e=>e.id));
   S.lastSync=Date.now();S.charge=true;S.online=true;saveCache();
 }
@@ -244,7 +279,7 @@ function renderHead(){
     if(errs)s+='<span style="color:#ffb4ab">'+errs+' refusée'+(errs>1?'s':'')+'</span>';
     s+='</div>';
     if(isBureau()){const t=(k,l)=>'<button role="tab" data-act="tab" data-k="'+k+'" aria-selected="'+(S.tab===k)+'">'+l+'</button>';
-      s+='<nav class="tabs" role="tablist">'+t('saisie','Notes')+t('eleves','Élèves')+(isDir()?t('direct','En direct'):'')+'</nav>'}
+      s+='<nav class="tabs" role="tablist">'+t('saisie','Notes')+t('bulletins','Bulletins')+t('eleves','Élèves')+(isDir()?t('direct','En direct'):'')+'</nav>'}
   }
   h.innerHTML=s;
 }
@@ -255,6 +290,7 @@ function viewMain(){
   if(S.view==='edit')return viewEdit();
   if(S.view==='eleve'&&isBureau())return viewEleveForm();
   if(S.view==='import'&&isBureau())return viewImport();
+  if(S.tab==='bulletins'&&isBureau())return S.view==='bulletin'?viewBulletin():viewBulletins();
   if(S.tab==='eleves'&&isBureau())return viewEleves();
   if(S.tab==='direct'&&isDir())return viewDirect();
   return viewSaisie();
@@ -292,14 +328,14 @@ function viewSaisie(){
   const manque=evs.filter(e=>!vueNotes(e.id)).length;
   if(manque&&!S.online)h+='<p class="small muted">Certaines notes ne sont pas encore sur ce téléphone : elles s\'afficheront au retour du réseau.</p>';
   // Devoirs
-  h+='<div class="row between"><h2>Devoirs · '+esc(S.classe)+' · '+esc(matName(S.matiere))+'</h2><button class="btn primary" data-act="new-devoir"'+dis+(els.length?'':' disabled')+'>+ Nouveau devoir</button></div>';
+  h+='<div class="row between"><h2>Devoirs · '+esc(S.classe)+' · '+esc(matName(S.matiere))+'</h2><button class="btn primary" data-act="new-devoir"'+dis+'>+ Nouveau devoir</button></div>';
   if(!devs.length)h+='<p class="small muted">Aucun devoir dans cette matière au '+trimName(S.trim)+'.</p>';
   else h+='<div class="list">'+devs.map(d=>{const n=vueNotes(d.id),vals=n?Object.values(n).map(x=>x.note).filter(num):[];
     return '<div class="li"><span class="no small">'+dateFr(d.date)+'</span><span><b>'+esc(d.titre||'Devoir')+'</b>'+(enAttente(d.id)?' <span class="badge warn">à envoyer</span>':'')+'<br><span class="small muted">'+(n?vals.length+'/'+els.length+' notes · moyenne '+fmt(avg(vals)):'notes non chargées')+'</span></span><button class="btn sm" data-act="edit" data-id="'+d.id+'"'+dis+'>'+(lk?'Verrouillé':'Modifier')+'</button></div>'}).join('')+'</div>';
   // Composition
   const nc=compo&&vueNotes(compo.id),faits=nc?Object.values(nc).filter(x=>x.dispense||num(x.note)).length:0;
   h+='<h2>Composition · '+trimName(S.trim)+'</h2><div class="list"><div class="li"><span class="no small">'+(compo&&faits>=els.length&&els.length?'✓':'')+'</span><span><b>Notes de classe /20 et composition /40</b>'+(compo&&enAttente(compo.id)?' <span class="badge warn">à envoyer</span>':'')+'<br><span class="small muted">'+(compo?(nc?faits+'/'+els.length+' élèves':'notes non chargées'):'Pas encore saisie')+'</span></span><button class="btn sm" data-act="compo"'+dis+(els.length?'':' disabled')+'>'+(compo?'Modifier':'Saisir')+'</button></div></div>';
-  h+='<p class="small muted">Moyenne de la matière sur le bulletin = (notes de classe + composition sur 40) ÷ 3.</p>';
+  h+='<p class="small muted">Ces notes vont directement sur le bulletin. Moyenne de la matière = (notes de classe + composition sur 40) ÷ 3. Si les notes de classe ne sont pas saisies, la moyenne des devoirs les remplace.'+(isBureau()?' Voir l\'onglet <b>Bulletins</b>.':'')+'</p>';
   if(S.lastSync)h+='<p class="small muted">Données à jour à '+heure(S.lastSync)+'.</p>';
   return h;
 }
@@ -308,6 +344,10 @@ const trimChips=()=>'<div class="chips" role="group" aria-label="Trimestre">'+[1
 /* ----- Saisie d'un devoir ou de la composition ----- */
 function ouvrir(kind,id){
   if(estVerrou(S.classe,S.trim)){toast('Ce trimestre est verrouillé.');return}
+  if(!elevesOf(S.classe).length){
+    if(isBureau()){S.tab='eleves';S.elClasse=S.classe;S.view=null;render(true);window.scrollTo(0,0);toast('Aucun élève en '+S.classe+' : ajoutez d\'abord la liste des élèves, puis créez le devoir.')}
+    else toast('Aucun élève en '+S.classe+' : le secrétariat doit d\'abord saisir la liste de la classe.');
+    return}
   const evs=vueEvals();let ev;
   if(kind==='compo')ev=evs.find(e=>e.classe===S.classe&&e.matiere===S.matiere&&e.trimestre===S.trim&&e.type==='compo');
   else ev=id?evs.find(e=>e.id===id):null;
@@ -321,6 +361,8 @@ function ouvrir(kind,id){
 function viewEdit(){
   const D=S.draft,ev=D.ev,els=elevesOf(ev.classe),compo=ev.type==='compo';
   let h='<button class="btn ghost" data-act="close">← Retour</button><div class="card"><h2>'+(compo?'Composition':(D.neuf?'Nouveau devoir':'Modifier le devoir'))+' · '+esc(ev.classe)+' · '+esc(matName(ev.matiere))+'</h2><p class="small muted">'+trimName(ev.trimestre)+' · '+esc(S.annee)+'</p>';
+  const matsDev=[...new Set(mesCours().filter(c=>c.classe===ev.classe).map(c=>c.matiere))];
+  if(!compo&&D.neuf&&matsDev.length>1)h+='<div class="form"><div class="field"><label for="d-mat">Matière du devoir</label><select id="d-mat" data-d="matiere">'+matsDev.map(m=>'<option value="'+esc(m)+'"'+(m===ev.matiere?' selected':'')+'>'+esc(matName(m))+'</option>').join('')+'</select></div></div>';
   if(!compo)h+='<div class="form"><div class="field"><label for="d-titre">Titre</label><input id="d-titre" data-d="titre" value="'+esc(ev.titre)+'"></div><div class="field"><label for="d-date">Date</label><input id="d-date" type="date" data-d="date" value="'+esc(ev.date||'')+'"></div></div><p class="small muted">Notes sur 20. Laissez vide si l\'élève était absent. La virgule est acceptée (12,5).</p>';
   else h+='<p class="small muted">Notes de classe sur 20, composition sur 40. Cochez <b>Disp.</b> pour un élève dispensé : la matière ne comptera pas dans sa moyenne.</p>';
   h+='</div>';
@@ -351,7 +393,7 @@ function enregistrer(){
   if(!compo){ev.titre=(ev.titre||'').trim()||'Devoir';if(!Object.keys(notes).length&&D.neuf){S.err='Saisissez au moins une note.';render(true);return}}
   const serveur=S.notes[ev.id]||{};
   const p={pid:uuid(),kind:'save',ev:{id:ev.id,annee:ev.annee,classe:ev.classe,matiere:ev.matiere,trimestre:ev.trimestre,type:ev.type,titre:ev.titre,date:ev.date||null},notes,cleared:cleared.filter(id=>id in serveur),at:Date.now()};
-  mettreEnFile(p);S.view=null;S.draft=null;S.err='';render(true);
+  mettreEnFile(p);if(!compo&&ev.classe===S.classe){S.matiere=ev.matiere;saveSel()}S.view=null;S.draft=null;S.err='';render(true);
   if(S.online&&navigator.onLine){toast('Notes enregistrées. Envoi…');synchroniser()}
   else toast('Notes gardées sur le téléphone. Elles partiront au retour du réseau.');
 }
@@ -464,6 +506,125 @@ async function enregistrerImport(){
   catch(err){S.busy=false;saveCache();S.err=(n?n+' élèves ont été ajoutés, mais la suite a échoué : ':'')+(estReseau(err)?'pas de réseau.':msgErreur(err));if(n){I.lignes=null}render(true)}
 }
 
+/* ----- Bulletins (directeur et secrétariat) -----
+   Calculés directement à partir des notes saisies :
+   - notes de classe /20 : celles saisies avec la composition ; à défaut, la moyenne des devoirs de la matière ;
+   - composition : note /40 ramenée sur 20 ;
+   - moyenne de la matière = (notes de classe + 2 × composition sur 20) ÷ 3 ;
+   - une matière dont il manque l'une des deux notes donne une moyenne provisoire (*) ;
+   - un élève dispensé : la matière ne compte ni dans ses points ni dans son total de coefficients. */
+const niv=c=>String(c||'')[0];
+const matsFor=c=>S.matieres.filter(m=>(m.niveaux||[]).includes(niv(c)));
+function coefFor(m,n){const c=m.coefs&&Number(m.coefs[n]);return c>0?c:1}
+function appr(v){if(!num(v))return '';const T=[[2,'Nul'],[4,'Mal'],[6,'Médiocre'],[8,'Faible'],[10,'Insuffisant'],[12,'Passable'],[14,'Assez-Bien'],[16,'Bien'],[18,'Très-Bien']];for(const[m,l]of T)if(v<m)return l;return 'Excellent'}
+const fmt3=v=>num(v)?v.toFixed(3).replace('.',','):'–';
+const classeLong=c=>c[0]+'ème Année';
+const repart=c=>c.slice(-1);
+const trimCap=t=>t===1?'1er Trimestre':t+'e Trimestre';
+function rangTxt(r,ex,sexe){if(!r)return '–';const s=r===1?(sexe==='F'?'1re':'1er'):r+'e';return ex?s+' ex æquo':s}
+function indexClasse(c,t){
+  const by={};
+  vueEvals().filter(e=>e.classe===c&&e.trimestre===t&&(e.annee||S.annee)===S.annee).forEach(e=>{
+    const b=by[e.matiere]||(by[e.matiere]={compo:null,devs:[]});if(e.type==='compo')b.compo=e;else b.devs.push(e)});
+  return by;
+}
+function ligneMat(eid,m,b,coef){
+  const L={m,coef,mc:null,c:null,moy:null,pts:null,incomplet:false,disp:false,dev:false};
+  if(!b)return L;
+  if(b.compo){const n=(vueNotes(b.compo.id)||{})[eid];
+    if(n&&n.dispense){L.disp=true;return L}
+    if(n&&num(n.note_classe))L.mc=n.note_classe;
+    if(n&&num(n.note))L.c=n.note/2}
+  if(L.mc==null){const vs=b.devs.map(d=>((vueNotes(d.id)||{})[eid]||{}).note).filter(num);if(vs.length){L.mc=avg(vs);L.dev=true}}
+  L.moy=L.mc!=null&&L.c!=null?(L.mc+2*L.c)/3:(L.c!=null?L.c:L.mc);
+  if(L.moy!=null){L.pts=L.moy*coef;L.incomplet=L.mc==null||L.c==null}
+  return L;
+}
+function bulletinData(e,t,mats,by){
+  const lines=mats.map(m=>ligneMat(e.id,m,by[m.id],coefFor(m,niv(e.classe))));
+  const ok=lines.filter(l=>!l.disp&&l.moy!=null),sc=ok.reduce((s,l)=>s+l.coef,0),tot=ok.reduce((s,l)=>s+l.pts,0);
+  return {lines,sumCoef:sc,total:tot,moyGen:sc?tot/sc:null,nbMat:ok.length};
+}
+function rankList(items,get){const vals=items.map(get),sorted=vals.filter(num).map(v=>Math.round(v*1000)).sort((a,b)=>b-a);
+  items.forEach((it,i)=>{const v=vals[i];if(!num(v)){it.rang=null;it.ex=false;return}const r=Math.round(v*1000);it.rang=sorted.indexOf(r)+1;it.ex=sorted.filter(x=>x===r).length>1})}
+function classResults(c,t){const mats=matsFor(c),by=indexClasse(c,t);const res=elevesOf(c).map(e=>({e,b:bulletinData(e,t,mats,by)}));rankList(res,r=>r.b.moyGen);return res}
+function annualResults(c){const mats=matsFor(c),bys=[1,2,3].map(t=>indexClasse(c,t));
+  const res=elevesOf(c).map(e=>{const ts=[1,2,3].map(t=>bulletinData(e,t,mats,bys[t-1]).moyGen);return {e,ts,moyAn:ts.every(num)?avg(ts):null}});rankList(res,r=>r.moyAn);return res}
+const decision=v=>num(v)?(v>=10?'Admis(e) en classe supérieure':'Redouble'):'';
+/* Matières où des notes manquent encore (pour le contrôle avant impression) */
+function controle(c,t){
+  const els=elevesOf(c),by=indexClasse(c,t);
+  return matsFor(c).map(m=>{const ls=els.map(e=>ligneMat(e.id,m,by[m.id],1));
+    const manque=ls.filter(l=>!l.disp&&(l.moy==null||l.incomplet)).length;return {m,manque,total:els.length}}).filter(x=>x.manque);
+}
+async function chargerBulletins(){
+  if(!isBureau()||!sb)return;
+  const c=S.bulClasse,ids=S.evals.filter(e=>e.classe===c&&!S.notes[e.id]).map(e=>e.id);
+  if(!ids.length){S.bulCharge[c]=true;return}
+  try{await chargerNotes(ids);S.bulCharge[c]=true;saveCache()}catch(e){if(estReseau(e))S.online=false}
+  if(S.tab==='bulletins')render();
+}
+function viewBulletins(){
+  const c=CLASSES.includes(S.bulClasse)?S.bulClasse:(S.classe||CLASSES[0]);S.bulClasse=c;
+  const res=classResults(c,S.trim),eff=res.length;
+  let h='<div class="card"><h2>Bulletins</h2><div class="chips" role="group" aria-label="Classe">'+CLASSES.map(k=>'<button class="chip" data-act="bulcl" data-c="'+k+'" aria-pressed="'+(k===c)+'">'+k+'</button>').join('')+'</div>'+trimChips()+
+    '<p class="small muted">Les bulletins se remplissent tout seuls avec les notes saisies par les enseignants (notes de classe, compositions et devoirs).</p></div>';
+  if(!eff)return h+'<div class="notice warn"><b>Aucun élève en '+esc(c)+'</b><p class="small">Ajoutez d\'abord les élèves de la classe.</p><div><button class="btn sm" data-act="go-eleves" data-c="'+esc(c)+'">Ajouter les élèves de '+esc(c)+'</button></div></div>';
+  if(!S.bulCharge[c]&&S.online)h+='<p class="small muted">Chargement des notes de la classe…</p>';
+  const ctl=controle(c,S.trim);
+  if(ctl.length)h+='<div class="notice warn"><b>Notes encore manquantes · '+trimName(S.trim)+'</b><p class="small">Les bulletins de ces matières auront des moyennes provisoires (*) ou vides :</p><div class="small">'+ctl.map(x=>esc(x.m.nom)+' : '+x.manque+'/'+x.total+' élève'+(x.manque>1?'s':'')).join(' · ')+'</div></div>';
+  else h+='<div class="notice"><b>Toutes les notes du '+trimName(S.trim)+' sont saisies en '+esc(c)+'.</b></div>';
+  const vals=res.map(r=>r.b.moyGen).filter(num),admis=vals.filter(v=>v>=10).length;
+  h+='<div class="tw"><table><tbody><tr><th>Effectif</th><td class="n"><b>'+eff+'</b></td><th>Moyenne de la classe</th><td class="n"><b>'+fmt(avg(vals))+'</b></td></tr><tr><th>Moyenne ≥ 10</th><td class="n"><b>'+admis+'/'+vals.length+'</b></td><th>Plus forte</th><td class="n"><b>'+fmt(vals.length?Math.max(...vals):null)+'</b></td></tr></tbody></table></div>';
+  h+='<div class="row"><button class="btn primary" data-act="print" data-n="2">Imprimer : 2 bulletins par feuille</button><button class="btn" data-act="print" data-n="1">1 par feuille</button></div>';
+  const sorted=[...res].sort((a,b)=>(a.rang||9999)-(b.rang||9999)||String(a.e.nom).localeCompare(b.e.nom,'fr'));
+  h+='<div class="list">'+sorted.map(r=>'<div class="li"><span class="no">'+(r.rang||'–')+'</span><span><b>'+esc(nomEleve(r.e))+'</b><br><span class="small muted">'+(r.b.nbMat?r.b.nbMat+' matière'+(r.b.nbMat>1?'s':'')+' notée'+(r.b.nbMat>1?'s':''):'Aucune note')+' · <span class="'+cls(r.b.moyGen)+'">'+fmt(r.b.moyGen)+'</span></span></span><button class="btn sm" data-act="bul" data-id="'+r.e.id+'">Voir</button></div>').join('')+'</div>';
+  return h;
+}
+function docBulletin(r,eff,premier,an){
+  const e=r.e,c3=v=>num(v)?fmt3(v):'',f2=v=>num(v)?fmt(v):'',dsp='Dispensé'+(e.sexe==='F'?'e':'');
+  let h='<div class="doc"><div class="dhead">'+(S.logo?'<img src="'+esc(S.logo)+'" alt="">':'<span></span>')+'<div><h3>'+esc(S.ecole.toUpperCase())+'</h3><p>Second Cycle</p><p class="it">Bulletin de Notes du '+trimCap(S.trim)+'</p><p class="it sm">Année scolaire : '+esc(S.annee.replace(/\s*-\s*/,' - '))+'</p></div><span></span></div>';
+  h+='<table><thead><tr><th>Id Élève</th><th>Nom</th><th>Prénom</th><th>Classe</th><th>Répartition</th></tr></thead><tbody><tr><td class="c">'+esc(e.matricule||'')+'</td><td class="c"><b>'+esc((e.nom||'').toUpperCase())+'</b></td><td class="c">'+esc(e.prenom||'')+'</td><td class="c">'+classeLong(e.classe)+'</td><td class="c">'+repart(e.classe)+'</td></tr></tbody></table>';
+  h+='<table><thead><tr><th class="l">Matières</th><th>Notes de<br>Classe</th><th>Notes de<br>Comp.</th><th>Moy.<br>Notes</th><th>Coef.</th><th>Moy.<br>Coef.</th><th>Observation Maîtres</th></tr></thead><tbody>';
+  r.b.lines.forEach(l=>{
+    if(l.disp){h+='<tr><td>'+esc(l.m.nom)+'</td><td class="c" colspan="3"><i>'+dsp+'</i></td><td class="c">–</td><td class="c"></td><td class="c">'+dsp+'</td></tr>';return}
+    h+='<tr><td>'+esc(l.m.nom)+'</td><td class="c">'+f2(l.mc)+'</td><td class="c">'+(l.c!=null?f2(l.c*2):'')+'</td><td class="c">'+(l.moy!=null?c3(l.moy)+(l.incomplet?'*':''):'')+'</td><td class="c">'+fmtN(l.coef)+'</td><td class="c">'+c3(l.pts)+'</td><td class="c">'+appr(l.moy)+'</td></tr>'});
+  h+='</tbody></table>';
+  if(an)h+='<table><thead><tr><th>Moy. 1er Trim.</th><th>Moy. 2e Trim.</th><th>Moy. 3e Trim.</th><th>Moy. Annuelle</th><th>Rang Annuel</th><th>Décision</th></tr></thead><tbody><tr><td class="c">'+c3(an.ts[0])+'</td><td class="c">'+c3(an.ts[1])+'</td><td class="c">'+c3(an.ts[2])+'</td><td class="c"><b>'+c3(an.moyAn)+'</b></td><td class="c">'+rangTxt(an.rang,an.ex,e.sexe)+'</td><td class="c"><b>'+(decision(an.moyAn)||'En attente des 3 trimestres')+'</b></td></tr></tbody></table>';
+  h+='<div class="dfoot"><div class="dcol"><table><tbody><tr><td class="lb">Total Coef.</td><td class="c">'+fmtN(r.b.sumCoef)+'</td></tr><tr><td class="lb">Total Moy. Coef.</td><td class="c">'+c3(r.b.total)+'</td></tr><tr><td class="lb">Moyenne gén.</td><td class="c"><b>'+c3(r.b.moyGen)+'</b></td></tr><tr><td class="lb">Rang</td><td class="c"><b>'+rangTxt(r.rang,r.ex,e.sexe)+'</b></td></tr></tbody></table>'+
+    '<table><thead><tr><th colspan="2">Le Tuteur</th></tr></thead><tbody><tr><td class="lb">Nom et Prénoms</td><td class="c"></td></tr><tr><td class="lb sigcell">Signature</td><td class="sigcell"></td></tr></tbody></table></div>'+
+    '<div class="dcol"><table><tbody><tr><td class="lb">Nbr. Élèves dans la classe</td><td class="c">'+eff+' Élèves</td></tr><tr><td class="lb">Moyenne du Premier</td><td class="c">'+c3(premier)+'</td></tr></tbody></table>'+
+    '<table><thead><tr><th colspan="2">Le Directeur</th></tr></thead><tbody><tr><td class="lb">Nom et Prénoms</td><td class="c">'+esc(S.directeur||'')+'</td></tr><tr><td class="lb">Observation</td><td class="c"><b>'+appr(r.b.moyGen)+'</b></td></tr><tr><td colspan="2" class="cachet">Cachet et signature</td></tr></tbody></table></div></div>';
+  if(r.b.lines.some(l=>l.incomplet))h+='<p class="sm it">* moyenne provisoire : il manque les notes de classe ou la composition dans cette matière.</p>';
+  return h+'</div>';
+}
+function contexteBul(c){
+  const res=classResults(c,S.trim),vals=res.map(r=>r.b.moyGen).filter(num);
+  const an=S.trim===3?annualResults(c):null;
+  return {res,eff:res.length,premier:vals.length?Math.max(...vals):null,an:id=>an?an.find(x=>x.e.id===id):null};
+}
+function viewBulletin(){
+  const K=contexteBul(S.bulClasse),i=K.res.findIndex(r=>r.e.id===S.bulId);
+  if(i<0){S.view=null;return viewBulletins()}
+  const sorted=[...K.res].sort((a,b)=>String(a.e.nom).localeCompare(b.e.nom,'fr')||String(a.e.prenom).localeCompare(b.e.prenom,'fr'));
+  const j=sorted.findIndex(r=>r.e.id===S.bulId),prev=sorted[j-1],next=sorted[j+1],r=K.res[i];
+  let h='<div class="row between"><button class="btn ghost" data-act="bul-close">← Liste de la classe</button><div class="row">'+(prev?'<button class="btn sm" data-act="bul" data-id="'+prev.e.id+'">‹ Précédent</button>':'')+(next?'<button class="btn sm" data-act="bul" data-id="'+next.e.id+'">Suivant ›</button>':'')+'<button class="btn sm primary" data-act="print-one">Imprimer</button></div></div>';
+  return h+'<div class="doc-wrap">'+docBulletin(r,K.eff,K.premier,K.an(r.e.id))+'</div>';
+}
+function imprimer(mode,seul){
+  const K=contexteBul(S.bulClasse),eff=K.eff;
+  let liste=[...K.res].sort((a,b)=>String(a.e.nom).localeCompare(b.e.nom,'fr')||String(a.e.prenom).localeCompare(b.e.prenom,'fr'));
+  if(seul)liste=liste.filter(r=>r.e.id===seul);
+  if(!liste.length)return;
+  const docs=liste.map(r=>docBulletin(r,eff,K.premier,K.an(r.e.id)));
+  let h='';
+  if(mode===2)for(let i=0;i<docs.length;i+=2)h+='<div class="feuille deux">'+docs[i]+(docs[i+1]||'<div class="doc vide"></div>')+'</div>';
+  else h=docs.map(d=>'<div class="feuille un">'+d+'</div>').join('');
+  document.getElementById('print').innerHTML=h;
+  document.getElementById('pagefmt').textContent='@page{size:A4 '+(mode===2?'landscape':'portrait')+';margin:8mm}';
+  setTimeout(()=>window.print(),60);
+}
+
 /* ----- Saisies en direct (directeur) ----- */
 async function chargerFeed(){
   if(!isDir()||!sb)return;
@@ -512,7 +673,12 @@ document.addEventListener('submit',async ev=>{
 document.addEventListener('click',async ev=>{
   const b=ev.target.closest('[data-act]');if(!b||b.tagName==='SELECT')return;
   const a=b.dataset.act;
-  if(a==='tab'){S.tab=b.dataset.k;S.view=null;render(true);if(S.tab==='direct')chargerFeed();return}
+  if(a==='tab'){S.tab=b.dataset.k;S.view=null;if(S.tab==='bulletins'&&!S.bulClasse)S.bulClasse=S.classe||CLASSES[0];render(true);if(S.tab==='direct')chargerFeed();if(S.tab==='bulletins')chargerBulletins();return}
+  if(a==='bulcl'){S.bulClasse=b.dataset.c;render(true);chargerBulletins();return}
+  if(a==='bul'){S.bulId=b.dataset.id;S.view='bulletin';render(true);window.scrollTo(0,0);return}
+  if(a==='bul-close'){S.view=null;render(true);return}
+  if(a==='print'){const ctl=controle(S.bulClasse,S.trim);if(ctl.length&&!confirm('Des notes manquent encore en '+S.bulClasse+' ('+ctl.map(x=>x.m.nom).join(', ')+'). Les bulletins auront des moyennes provisoires. Imprimer quand même ?'))return;imprimer(+b.dataset.n);return}
+  if(a==='print-one'){imprimer(1,S.bulId);return}
   if(a==='cours'){S.classe=b.dataset.c;S.matiere=b.dataset.m;saveSel();render(true);return}
   if(a==='trim'){S.trim=+b.dataset.t;saveSel();render(true);return}
   if(a==='new-devoir')return ouvrir('devoir');
@@ -552,7 +718,9 @@ document.addEventListener('change',ev=>{
   if(t.dataset.el&&S.elDraft){S.elDraft[t.dataset.el]=t.value;return}
   if(t.dataset.actChange==='impclasse'&&S.imp){S.imp.classe=t.value;S.imp.lignes=null;S.err='';render(true);return}
   if(t.dataset.actChange==='feedclasse'){S.feedClasse=t.value;S.feedAt=null;render(true);chargerFeed();return}
-  if(t.dataset.disp&&S.draft){S.draft.vals[t.dataset.disp].disp=t.checked;render(true)}
+  if(t.dataset.disp&&S.draft){S.draft.vals[t.dataset.disp].disp=t.checked;render(true);return}
+  if(t.dataset.d==='matiere'&&S.draft){S.draft.ev.matiere=t.value;render(true);return}
+  if(t.dataset.actChange==='bulclasse'){S.bulClasse=t.value;S.view=null;render(true);chargerBulletins();return}
 });
 document.addEventListener('input',ev=>{
   const t=ev.target;
