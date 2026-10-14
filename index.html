@@ -323,7 +323,7 @@ function blocErreurs(){
 }
 function viewSaisie(){
   const cs=mesCours();
-  let h=blocErreurs();
+  let h=blocErreurs()+rappelSauvegarde();
   if(!cs.length)return h+'<div class="card"><h2>Aucune classe attribuée</h2><p class="muted">La direction doit d\'abord vous attribuer vos classes et vos matières pour l\'année '+esc(S.annee)+'.</p></div>';
   // Choix de la classe et de la matière
   if(isBureau()){
@@ -889,11 +889,12 @@ function viewReglages(){
   const R=S.reg;
   if(R.form)return R.form.type==='compte'?viewFormCompte():R.form.type==='matiere'?viewFormMatiere():viewReglages();
   const sec=(k,l)=>'<button class="chip" data-act="rg-sec" data-k="'+k+'" aria-pressed="'+(R.sec===k)+'">'+l+'</button>';
-  let h='<div class="card"><h2>Réglages</h2><div class="chips">'+sec('ens','Enseignants et comptes')+sec('mat','Matières')+sec('eco','École')+'</div><p class="small muted">Réservé au directeur.</p></div>';
+  let h='<div class="card"><h2>Réglages</h2><div class="chips">'+sec('ens','Enseignants et comptes')+sec('mat','Matières')+sec('eco','École')+sec('sav','Sauvegarde')+'</div><p class="small muted">Réservé au directeur.</p></div>';
   if(R.manque)h+='<div class="notice warn"><b>Réglages pas encore activés</b><p class="small">Il faut d\'abord exécuter le script « Réglages du directeur » dans l\'éditeur SQL de Supabase (une seule fois).</p></div>';
   else if(R.err)h+='<div class="notice warn small">'+esc(R.err)+'</div>';
   if(R.sec==='ens')return h+viewComptes();
   if(R.sec==='mat')return h+viewMatieres();
+  if(R.sec==='sav')return h+viewSauvegarde();
   return h+viewEcole();
 }
 function viewComptes(){
@@ -995,6 +996,66 @@ async function retirerMatiere(){
     toast(r==='supprimee'?'Matière supprimée.':'Matière retirée des bulletins (ses notes restent).');await rafraichir();chargerReglages()}
   catch(e){S.reg.busy=false;S.confirm=null;S.reg.err=errRpc(e);render(true)}
 }
+/* ----- Sauvegarde (directeur) : toutes les données dans un fichier Excel à garder sur le PC de l'école ----- */
+const XLSX_URL='https://cdnjs.cloudflare.com/ajax/libs/xlsx/0.18.5/xlsx.full.min.js';
+function chargerXlsx(){if(window.XLSX)return Promise.resolve(window.XLSX);return new Promise((ok,ko)=>{const sc=document.createElement('script');sc.src=XLSX_URL;sc.onload=()=>window.XLSX?ok(window.XLSX):ko(new Error('bibliothèque Excel absente'));sc.onerror=()=>ko(new Error('pas de réseau pour préparer le fichier Excel'));document.head.appendChild(sc)})}
+const derniereSauv=()=>lsGet('bn-sauvegarde');
+const joursDepuis=iso=>iso?Math.floor((Date.now()-new Date(iso).getTime())/864e5):null;
+function rappelSauvegarde(){
+  if(!isDir())return '';const d=derniereSauv(),j=d?joursDepuis(d.le):null;
+  if(d&&j<7)return '';
+  return '<div class="notice warn small"><b>'+(d?'Dernière sauvegarde il y a '+j+' jours':'Aucune sauvegarde des notes pour l\'instant')+'</b><p>Pensez à télécharger la sauvegarde sur le PC de l\'école : Réglages › Sauvegarde.</p><div><button class="btn sm" data-act="sav-ouvrir">Faire la sauvegarde</button></div></div>';
+}
+function viewSauvegarde(){
+  const d=derniereSauv(),j=d?joursDepuis(d.le):null,R=S.reg;
+  let h='<div class="card"><h2>Sauvegarde des notes</h2><p>Un seul fichier Excel avec toutes les données de l\'école : élèves et numéros des parents, matières et coefficients, devoirs, compositions et toutes les notes de l\'année.</p>'+
+    '<p class="small muted">'+(d?'Dernière sauvegarde depuis ce téléphone ou ce PC : <b>'+esc(dateLong(d.le.slice(0,10)))+' à '+esc(heure(d.le))+'</b>'+(j?' (il y a '+j+' jour'+(j>1?'s':'')+')':' (aujourd\'hui)')+(d.nb?' · '+d.nb+' notes':''):'Aucune sauvegarde faite depuis cet appareil.')+'</p>'+
+    (R.savErr?'<p class="err">'+esc(R.savErr)+'</p>':'')+
+    '<div class="row"><button class="btn primary" data-act="sav-go"'+(R.savBusy||!S.online?' disabled':'')+'>'+(R.savBusy?'Préparation…':'Télécharger la sauvegarde')+'</button></div>'+
+    (S.online?'':'<p class="small muted">Il faut une connexion Internet pour lire toutes les notes.</p>')+'</div>';
+  h+='<div class="card"><h3>Conseils</h3><ul class="steps small"><li>Le plus simple : ouvrez la page <b>sur le PC de l\'école</b>, connectez-vous avec le compte directeur et touchez le bouton. Le fichier arrive directement dans le dossier Téléchargements du PC.</li><li>Rangez chaque fichier dans un dossier « Sauvegardes notes » : chaque fichier porte la date du jour, les anciens restent.</li><li>Une fois par semaine suffit, et toujours avant d\'arrêter les bulletins d\'un trimestre.</li><li>Gardez aussi une copie sur une clé USB, au cas où le PC tomberait en panne.</li></ul></div>';
+  return h;
+}
+async function faireSauvegarde(){
+  const R=S.reg;if(R.savBusy)return;R.savBusy=true;R.savErr='';render(true);
+  try{
+    const X=await chargerXlsx();
+    const [els,mats,aff,evs,nts,vrs,prf]=await Promise.all([
+      fetchAll(()=>sb.from('eleves').select('*').order('classe').order('nom').order('id')),
+      fetchAll(()=>sb.from('matieres').select('*').order('ordre').order('id')),
+      fetchAll(()=>sb.from('affectations').select('annee,classe,matiere,user_id').order('annee').order('classe').order('matiere').order('user_id')),
+      fetchAll(()=>sb.from('evaluations').select('*').order('annee').order('classe').order('id')),
+      fetchAll(()=>sb.from('notes').select('evaluation_id,eleve_id,note,note_classe,dispense').order('evaluation_id').order('eleve_id')),
+      fetchAll(()=>sb.from('verrous').select('annee,classe,trimestre,le').order('annee').order('classe').order('trimestre')),
+      fetchAll(()=>sb.from('profils').select('id,identifiant,nom,role,actif').order('nom'))]);
+    const E={},V={},M={},P={};els.forEach(e=>E[e.id]=e);evs.forEach(v=>V[v.id]=v);mats.forEach(m=>M[m.id]=m);prf.forEach(p=>P[p.id]=p);
+    const n2=v=>v==null||v===''?null:Number(v);
+    const lignesNotes=nts.map(n=>{const v=V[n.evaluation_id]||{},e=E[n.eleve_id]||{},cp=v.type==='compo';
+      return {'Année':v.annee||'','Trimestre':v.trimestre||'','Classe':v.classe||'','Matière':(M[v.matiere]||{}).nom||v.matiere||'','Type':cp?'Composition':'Devoir','Titre':v.titre||'','Date':v.date||'',
+        'Matricule':e.matricule||'','Nom':e.nom||'','Prénom':e.prenom||'','Note':n.dispense?null:n2(n.note),'Sur':cp?40:20,'Note de classe /20':cp&&!n.dispense?n2(n.note_classe):null,'Dispensé':n.dispense?'oui':'',
+        'id évaluation':n.evaluation_id,'id élève':n.eleve_id}})
+      .sort((a,b)=>String(a['Année']).localeCompare(b['Année'])||a.Trimestre-b.Trimestre||CLASSES.indexOf(a.Classe)-CLASSES.indexOf(b.Classe)||a['Matière'].localeCompare(b['Matière'],'fr')||String(a.Date).localeCompare(b.Date)||a.Nom.localeCompare(b.Nom,'fr')||a['Prénom'].localeCompare(b['Prénom'],'fr'));
+    const wb=X.utils.book_new(),maintenant=new Date().toISOString();
+    const feuille=(nom,rows,larg)=>{const ws=X.utils.json_to_sheet(rows.length?rows:[{'(vide)':''}]);if(larg)ws['!cols']=larg.map(w=>({wch:w}));X.utils.book_append_sheet(wb,ws,nom)};
+    feuille('Lisez-moi',[
+      {'Rubrique':'École','Valeur':S.ecole},{'Rubrique':'Année en cours','Valeur':S.annee},
+      {'Rubrique':'Sauvegarde du','Valeur':dateLong(maintenant.slice(0,10))+' à '+heure(maintenant)},{'Rubrique':'Faite par','Valeur':S.profil.nom||''},
+      {'Rubrique':'Élèves','Valeur':els.length},{'Rubrique':'Devoirs et compositions','Valeur':evs.length},{'Rubrique':'Notes','Valeur':nts.length},
+      {'Rubrique':'Contenu','Valeur':'Notes (lisible) · Élèves · Matières · Évaluations · Enseignants · Verrous'},
+      {'Rubrique':'Important','Valeur':'Ne modifiez pas les colonnes « id » : elles servent à remettre les données en place si besoin.'}],[26,80]);
+    feuille('Notes',lignesNotes,[10,9,7,22,12,14,11,12,18,18,7,5,16,9,38,38]);
+    feuille('Élèves',els.map(e=>({'Classe':e.classe||'','Matricule':e.matricule||'','Nom':e.nom||'','Prénom':e.prenom||'','Sexe':e.sexe||'','Né(e) le':e.naissance_date||'','à':e.naissance_lieu||'','Parent':e.parent_nom||'','Téléphone parent':e.parent_tel||'','Père':e.pere||'','Mère':e.mere||'','id élève':e.id})),[7,12,18,18,5,12,14,20,16,18,18,38]);
+    feuille('Matières',mats.map(m=>({'Matière':m.nom,'Niveaux':(m.niveaux||[]).join(', '),'Coef 7e':(m.coefs||{})['7']??'','Coef 8e':(m.coefs||{})['8']??'','Coef 9e':(m.coefs||{})['9']??'','Ordre':m.ordre,'id matière':m.id})),[24,10,8,8,8,7,20]);
+    feuille('Évaluations',evs.map(v=>({'Année':v.annee,'Trimestre':v.trimestre,'Classe':v.classe,'Matière':(M[v.matiere]||{}).nom||v.matiere,'Type':v.type==='compo'?'Composition':'Devoir','Titre':v.titre||'','Date':v.date||'','Saisi par':(P[v.cree_par]||{}).nom||'','id évaluation':v.id,'id matière':v.matiere})),[10,9,7,22,12,14,11,20,38,20]);
+    feuille('Enseignants',aff.map(a=>({'Année':a.annee,'Enseignant':(P[a.user_id]||{}).nom||'','Identifiant':(P[a.user_id]||{}).identifiant||'','Classe':a.classe,'Matière':(M[a.matiere]||{}).nom||a.matiere})).sort((a,b)=>a.Enseignant.localeCompare(b.Enseignant,'fr')||CLASSES.indexOf(a.Classe)-CLASSES.indexOf(b.Classe)),[10,24,16,7,22]);
+    feuille('Verrous',vrs.map(v=>({'Année':v.annee,'Classe':v.classe,'Trimestre':v.trimestre,'Verrouillé le':v.le?dateLong(String(v.le).slice(0,10)):''})),[10,7,9,14]);
+    const d=maintenant.slice(0,10),nom='Sauvegarde_notes_Nehemie_'+d+'.xlsx';
+    const buf=X.write(wb,{bookType:'xlsx',type:'array'});
+    telecharger(new Blob([buf],{type:'application/vnd.openxmlformats-officedocument.spreadsheetml.sheet'}),nom);
+    lsSet('bn-sauvegarde',{le:maintenant,nb:nts.length});toast('Sauvegarde téléchargée : '+nom);
+  }catch(e){R.savErr=estReseau(e)?'Pas de connexion : réessayez quand le réseau revient.':'Sauvegarde impossible : '+(e&&e.message||e)}
+  R.savBusy=false;render(true);
+}
 function viewEcole(){
   const E=S.reg.eco||(S.reg.eco={nom:S.ecole,directeur:S.directeur||'',annee:S.annee,logo:S.logo||''});
   let h='<div class="card"><h2>École</h2><div class="form">'+
@@ -1067,6 +1128,8 @@ document.addEventListener('click',async ev=>{
   const b=ev.target.closest('[data-act]');if(!b||b.tagName==='SELECT')return;
   const a=b.dataset.act;
   if(a==='tab'){S.tab=b.dataset.k;S.view=null;if(S.tab==='bulletins'&&!S.bulClasse)S.bulClasse=S.classe||CLASSES[0];if(S.tab==='messages'){if(!S.msg.classe)S.msg.classe=S.classe||CLASSES[0];render(true);window.scrollTo(0,0);chargerMessages();return}render(true);if(S.tab==='direct')chargerFeed();if(S.tab==='bulletins')chargerBulletins();if(S.tab==='reglages'){S.reg.form=null;chargerReglages()}return}
+  if(a==='sav-go'){faireSauvegarde();return}
+  if(a==='sav-ouvrir'){S.tab='reglages';S.view=null;S.reg.sec='sav';S.reg.form=null;render(true);window.scrollTo(0,0);return}
   if(a==='rg-sec'){S.reg.sec=b.dataset.k;S.reg.err='';render(true);if(b.dataset.k==='ens'&&!S.reg.etat)chargerReglages();return}
   if(a==='rg-new-compte')return ouvrirCompte(null);
   if(a==='rg-edit-compte')return ouvrirCompte(b.dataset.id);
