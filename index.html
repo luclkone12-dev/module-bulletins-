@@ -50,7 +50,8 @@ p{margin:0}
 .card{background:var(--surface);border:1px solid var(--line);border-radius:var(--r);padding:14px;display:grid;gap:10px;min-width:0}
 .field{display:grid;gap:4px;min-width:0}
 .field label{font-size:.85rem;font-weight:600;color:var(--muted)}
-.field input,.field select{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:9px 10px;min-height:44px;width:100%}
+.field input,.field select,.field textarea{border:1px solid var(--line);background:var(--surface);border-radius:8px;padding:9px 10px;min-height:44px;width:100%}
+.field textarea{font:inherit;color:inherit;resize:vertical;line-height:1.5}
 .form{display:grid;grid-template-columns:repeat(auto-fill,minmax(200px,1fr));gap:12px}
 .chips{display:flex;gap:6px;overflow-x:auto;padding-bottom:4px}
 .chip{border:1px solid var(--line);background:var(--surface);border-radius:999px;padding:7px 13px;white-space:nowrap;cursor:pointer;font-weight:600;font-size:.93rem}
@@ -223,10 +224,11 @@ async function synchroniser(){
 }
 
 /* ===== Affichage ===== */
+const enFormulaire=()=>S.view==='edit'||S.view==='eleve'||S.view==='import';
 function render(force){
   renderHead();
   const a=document.activeElement;
-  if(!force&&S.view==='edit'&&a&&$app.contains(a)&&a.tagName==='INPUT')return;
+  if(!force&&enFormulaire()&&a&&$app.contains(a)&&/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))return;
   $app.innerHTML=viewMain();
 }
 function renderHead(){
@@ -241,7 +243,8 @@ function renderHead(){
     else if(att)s+='<span>'+att+' saisie'+(att>1?'s':'')+' à envoyer</span><button class="btn sm light" data-act="sync">Envoyer</button>';
     if(errs)s+='<span style="color:#ffb4ab">'+errs+' refusée'+(errs>1?'s':'')+'</span>';
     s+='</div>';
-    if(isDir())s+='<nav class="tabs" role="tablist"><button role="tab" data-act="tab" data-k="saisie" aria-selected="'+(S.tab==='saisie')+'">Saisie des notes</button><button role="tab" data-act="tab" data-k="direct" aria-selected="'+(S.tab==='direct')+'">Saisies en direct</button></nav>';
+    if(isBureau()){const t=(k,l)=>'<button role="tab" data-act="tab" data-k="'+k+'" aria-selected="'+(S.tab===k)+'">'+l+'</button>';
+      s+='<nav class="tabs" role="tablist">'+t('saisie','Notes')+t('eleves','Élèves')+(isDir()?t('direct','En direct'):'')+'</nav>'}
   }
   h.innerHTML=s;
 }
@@ -250,6 +253,9 @@ function viewMain(){
   if(!S.uid)return viewLogin();
   if(!S.charge)return '<div class="card"><h2>Chargement des classes…</h2><p class="muted">Un instant.</p></div>';
   if(S.view==='edit')return viewEdit();
+  if(S.view==='eleve'&&isBureau())return viewEleveForm();
+  if(S.view==='import'&&isBureau())return viewImport();
+  if(S.tab==='eleves'&&isBureau())return viewEleves();
   if(S.tab==='direct'&&isDir())return viewDirect();
   return viewSaisie();
 }
@@ -282,7 +288,7 @@ function viewSaisie(){
   const devs=evs.filter(e=>e.type==='devoir').sort((a,b)=>String(b.date||'').localeCompare(a.date||'')||String(b.cree_le||'').localeCompare(a.cree_le||''));
   const compo=evs.find(e=>e.type==='compo');
   if(lk)h+='<div class="notice"><b>'+trimName(S.trim)+' verrouillé</b><p class="small">Les bulletins de ce trimestre sont arrêtés. Les notes se consultent mais ne se modifient plus.</p></div>';
-  if(!els.length)h+='<div class="notice warn"><b>Aucun élève en '+esc(S.classe)+'</b><p class="small">'+(S.online?'La liste des élèves de cette classe n\'a pas encore été saisie par le secrétariat.':'La liste n\'est pas sur ce téléphone. Connectez-vous une fois au réseau pour la charger.')+'</p></div>';
+  if(!els.length)h+='<div class="notice warn"><b>Aucun élève en '+esc(S.classe)+'</b><p class="small">'+(S.online?'La liste des élèves de cette classe n\'a pas encore été saisie par le secrétariat.':'La liste n\'est pas sur ce téléphone. Connectez-vous une fois au réseau pour la charger.')+'</p>'+(isBureau()?'<div><button class="btn sm" data-act="go-eleves" data-c="'+esc(S.classe)+'">Ajouter les élèves de '+esc(S.classe)+'</button></div>':'')+'</div>';
   const manque=evs.filter(e=>!vueNotes(e.id)).length;
   if(manque&&!S.online)h+='<p class="small muted">Certaines notes ne sont pas encore sur ce téléphone : elles s\'afficheront au retour du réseau.</p>';
   // Devoirs
@@ -354,6 +360,110 @@ function supprimer(){
   S.view=null;S.draft=null;S.confirm=null;render(true);toast('Devoir supprimé.');if(S.online)synchroniser();
 }
 
+/* ----- Élèves (directeur et secrétariat) ----- */
+const CHAMPS_EL='id,matricule,nom,prenom,sexe,classe';
+const cleNom=(n,p)=>(String(n||'')+'|'+String(p||'')).toLowerCase().normalize('NFD').replace(/[̀-ͯ]/g,'').replace(/\s+/g,' ').trim();
+function majEleve(r){const i=S.eleves.findIndex(e=>e.id===r.id);if(i>=0)S.eleves[i]=r;else S.eleves.push(r)}
+function viewEleves(){
+  const c=CLASSES.includes(S.elClasse)?S.elClasse:(S.classe||CLASSES[0]);S.elClasse=c;
+  const els=elevesOf(c),f=els.filter(e=>e.sexe==='F').length,g=els.filter(e=>e.sexe==='M').length,x=els.length-f-g;
+  const sans=S.eleves.filter(e=>!CLASSES.includes(e.classe));
+  let h='<div class="card"><h2>Élèves</h2><div class="chips" role="group" aria-label="Classe">'+CLASSES.map(k=>'<button class="chip" data-act="elcl" data-c="'+k+'" aria-pressed="'+(k===c)+'">'+k+' · '+elevesOf(k).length+'</button>').join('')+'</div>';
+  h+='<p class="small muted">'+els.length+' élève'+(els.length>1?'s':'')+' en '+c+' · '+f+' fille'+(f>1?'s':'')+' · '+g+' garçon'+(g>1?'s':'')+(x?' · '+x+' sans sexe indiqué':'')+'</p>';
+  h+='<div class="row"><button class="btn primary" data-act="el-new"'+(S.online?'':' disabled')+'>+ Ajouter un élève</button><button class="btn" data-act="el-import"'+(S.online?'':' disabled')+'>Coller une liste</button></div>';
+  if(!S.online)h+='<p class="small muted">Hors connexion : ajouter ou modifier des élèves demande du réseau.</p>';
+  h+='</div>';
+  if(!els.length)h+='<div class="card"><p class="muted">Aucun élève en '+c+'. Ajoutez-les un par un, ou collez toute la liste d\'un coup avec « Coller une liste ».</p></div>';
+  else h+='<div class="list">'+els.map((e,i)=>ligneEleve(e,i+1)).join('')+'</div>';
+  if(sans.length)h+='<h2>Sans classe</h2><div class="list">'+sans.map((e,i)=>ligneEleve(e,i+1)).join('')+'</div>';
+  return h;
+}
+const ligneEleve=(e,n)=>'<div class="li"><span class="no">'+n+'</span><span><b>'+esc(nomEleve(e))+'</b>'+(e.sexe?' <span class="badge">'+(e.sexe==='F'?'F':'G')+'</span>':'')+(e.matricule?'<br><span class="small muted">Matricule '+esc(e.matricule)+'</span>':'')+'</span><button class="btn sm" data-act="el-edit" data-id="'+e.id+'"'+(S.online?'':' disabled')+'>Modifier</button></div>';
+async function ouvrirEleve(id){
+  let e={nom:'',prenom:'',sexe:'',classe:S.elClasse||CLASSES[0],matricule:'',naissance_date:'',naissance_lieu:'',parent_nom:'',parent_tel:''};
+  if(id){try{const r=chk(await sb.from('eleves').select(CHAMPS_EL+',naissance_date,naissance_lieu,parent_nom,parent_tel').eq('id',id).maybeSingle());if(!r){toast('Cet élève n\'existe plus.');return}e=r}
+    catch(err){toast(estReseau(err)?'Pas de réseau.':msgErreur(err));return}}
+  Object.keys(e).forEach(k=>{if(e[k]==null)e[k]=''});
+  S.elDraft={...e};S.view='eleve';S.confirm=null;S.err='';render(true);window.scrollTo(0,0);
+}
+function viewEleveForm(){
+  const e=S.elDraft,neuf=!e.id;
+  const inp=(k,l,t,extra)=>'<div class="field"><label for="e-'+k+'">'+l+'</label><input id="e-'+k+'" data-el="'+k+'" type="'+(t||'text')+'" value="'+esc(e[k])+'"'+(extra||'')+'></div>';
+  let h='<button class="btn ghost" data-act="el-close">← Retour</button><div class="card"><h2>'+(neuf?'Nouvel élève':'Modifier l\'élève')+'</h2><div class="form">'+
+    inp('nom','Nom *','text',' autocapitalize="characters"')+inp('prenom','Prénom(s) *','text',' autocapitalize="words"')+
+    '<div class="field"><label for="e-sexe">Sexe</label><select id="e-sexe" data-el="sexe"><option value="">—</option><option value="F"'+(e.sexe==='F'?' selected':'')+'>Fille</option><option value="M"'+(e.sexe==='M'?' selected':'')+'>Garçon</option></select></div>'+
+    '<div class="field"><label for="e-classe">Classe</label><select id="e-classe" data-el="classe">'+CLASSES.map(c=>'<option'+(c===e.classe?' selected':'')+'>'+c+'</option>').join('')+'</select></div>'+
+    inp('matricule','Matricule')+inp('naissance_date','Date de naissance','date')+inp('naissance_lieu','Lieu de naissance')+
+    inp('parent_nom','Nom du parent')+inp('parent_tel','Téléphone WhatsApp du parent','tel',' inputmode="tel" placeholder="ex. 76 00 00 00"')+'</div>';
+  h+=(S.err?'<p class="err">'+esc(S.err)+'</p>':'')+'<div class="row"><button class="btn primary" data-act="el-save"'+(S.busy?' disabled':'')+'>'+(S.busy?'Enregistrement…':'Enregistrer')+'</button><button class="btn" data-act="el-close">Annuler</button>';
+  if(!neuf)h+=S.confirm==='el-del'?'<div class="confirm"><span>Supprimer <b>'+esc(nomEleve(e))+'</b> ? <b>Toutes ses notes seront effacées.</b> Pour un élève qui change de classe, changez plutôt la classe ci-dessus.</span><button class="btn sm danger" data-act="el-del-yes">Oui, supprimer</button><button class="btn sm" data-act="el-del-no">Non</button></div>':'<button class="btn danger" data-act="el-del">Supprimer</button>';
+  return h+'</div></div>';
+}
+async function enregistrerEleve(force){
+  const e=S.elDraft,nom=String(e.nom).trim().replace(/\s+/g,' '),prenom=String(e.prenom).trim().replace(/\s+/g,' ');
+  if(!nom||!prenom){S.err='Le nom et le prénom sont obligatoires.';render(true);return}
+  if(!force){const k=cleNom(nom,prenom),d=S.eleves.find(x=>x.id!==e.id&&x.classe===e.classe&&cleNom(x.nom,x.prenom)===k);
+    if(d&&!confirm(nomEleve(d)+' est déjà inscrit(e) en '+e.classe+'. Enregistrer quand même un second élève de ce nom ?'))return}
+  const v=t=>{t=String(t??'').trim();return t||null};
+  const row={nom:nom.toUpperCase(),prenom,sexe:e.sexe||null,classe:e.classe,matricule:v(e.matricule),naissance_date:v(e.naissance_date),naissance_lieu:v(e.naissance_lieu),parent_nom:v(e.parent_nom),parent_tel:v(e.parent_tel)};
+  S.busy=true;S.err='';render(true);
+  try{const r=e.id?chk(await sb.from('eleves').update(row).eq('id',e.id).select(CHAMPS_EL).single()):chk(await sb.from('eleves').insert(row).select(CHAMPS_EL).single());
+    majEleve(r);saveCache();S.busy=false;S.elClasse=r.classe;
+    if(e.id){S.view=null;S.elDraft=null;render(true);toast('Élève enregistré.')}
+    else{S.elDraft={nom:'',prenom:'',sexe:'',classe:r.classe,matricule:'',naissance_date:'',naissance_lieu:'',parent_nom:'',parent_tel:''};render(true);toast(nomEleve(r)+' ajouté(e). Vous pouvez saisir le suivant.');const n=document.getElementById('e-nom');if(n)n.focus()}
+  }catch(err){S.busy=false;S.err=estReseau(err)?'Pas de réseau : réessayez quand la connexion revient.':(err.code==='23505'?'Ce matricule est déjà utilisé par un autre élève.':msgErreur(err));render(true)}
+}
+async function supprimerEleve(){
+  const id=S.elDraft.id;S.busy=true;render(true);
+  try{chk(await sb.from('eleves').delete().eq('id',id));S.eleves=S.eleves.filter(x=>x.id!==id);Object.values(S.notes).forEach(n=>{if(n)delete n[id]});saveCache();
+    S.busy=false;S.view=null;S.elDraft=null;S.confirm=null;render(true);toast('Élève supprimé.')}
+  catch(err){S.busy=false;S.confirm=null;S.err=estReseau(err)?'Pas de réseau.':msgErreur(err);render(true)}
+}
+/* Liste collée : une ligne par élève — « NOM Prénom », éventuellement « F » ou « G » à la fin */
+function lireListe(txt){
+  return String(txt||'').split(/\r?\n/).map(l=>l.replace(/ /g,' ').trim()).filter(Boolean).map(brut=>{
+    let l=brut.replace(/^\d+\s*[.)\-–]?\s+/,'').trim(),sexe=null;
+    const m=l.match(/(?:^|[\s;,\t])(F|M|G|fille|garçon|garcon)\s*$/i);
+    if(m&&l.length>m[0].length){const s=m[1].toLowerCase();sexe=(s==='f'||s==='fille')?'F':'M';l=l.slice(0,l.length-m[0].length).trim()}
+    l=l.replace(/[;,\t]+$/,'').trim();
+    let nom='',prenom='';
+    const parts=l.split(/\s*[;\t]\s*/).filter(Boolean);
+    if(parts.length>=2){nom=parts[0];prenom=parts.slice(1).join(' ')}
+    else{const w=l.split(/\s+/),maj=s=>s===s.toUpperCase()&&s!==s.toLowerCase();let k=0;while(k<w.length-1&&maj(w[k]))k++;if(k===0||w.every(maj))k=1;nom=w.slice(0,k).join(' ');prenom=w.slice(k).join(' ')}
+    return {brut,nom:nom.toUpperCase(),prenom,sexe,ok:!!(nom&&prenom)};
+  });
+}
+function viewImport(){
+  const I=S.imp;
+  let h='<button class="btn ghost" data-act="el-close">← Retour</button><div class="card"><h2>Coller une liste d\'élèves</h2>'+
+    '<p class="small muted">Une ligne par élève : le <b>NOM</b> en majuscules puis le ou les prénoms. Ajoutez <b>F</b> (fille) ou <b>G</b> (garçon) en fin de ligne si vous le connaissez. Les numéros en début de ligne sont ignorés. Vous pouvez copier la liste depuis Excel ou WhatsApp.</p>'+
+    '<div class="field"><label for="i-cl">Classe</label><select id="i-cl" data-act-change="impclasse">'+CLASSES.map(c=>'<option'+(c===I.classe?' selected':'')+'>'+c+'</option>').join('')+'</select></div>'+
+    '<div class="field"><label for="i-txt">Liste</label><textarea id="i-txt" data-imp="1" rows="10" placeholder="1. COULIBALY Aminata F&#10;2. DIARRA Moussa G&#10;3. KONÉ Jean-Baptiste">'+esc(I.texte)+'</textarea></div>'+
+    '<div class="row"><button class="btn" data-act="imp-check">Vérifier la liste</button></div></div>';
+  if(I.lignes){
+    const bons=I.lignes.filter(r=>r.ok&&!r.doublon),bad=I.lignes.filter(r=>!r.ok),dbl=I.lignes.filter(r=>r.ok&&r.doublon);
+    h+='<div class="card"><h2>'+bons.length+' élève'+(bons.length>1?'s':'')+' à ajouter en '+esc(I.classe)+'</h2>';
+    if(bad.length)h+='<div class="notice warn small"><b>'+bad.length+' ligne(s) sans prénom, ignorée(s) :</b> '+bad.map(r=>esc(r.brut)).join(' · ')+'</div>';
+    if(dbl.length)h+='<div class="notice small"><b>'+dbl.length+' déjà inscrit(s) dans la classe, ignoré(s) :</b> '+dbl.map(r=>esc(r.nom+' '+r.prenom)).join(' · ')+'</div>';
+    h+='<p class="small muted">Vérifiez que le nom et le prénom sont bien séparés. Sinon, corrigez la liste et vérifiez à nouveau.</p>';
+    if(bons.length)h+='<div class="tw"><table><thead><tr><th class="n">N°</th><th>Nom</th><th>Prénom(s)</th><th>Sexe</th></tr></thead><tbody>'+bons.map((r,i)=>'<tr><td class="n">'+(i+1)+'</td><td><b>'+esc(r.nom)+'</b></td><td>'+esc(r.prenom)+'</td><td>'+(r.sexe==='F'?'F':r.sexe==='M'?'G':'–')+'</td></tr>').join('')+'</tbody></table></div>';
+    h+=(S.err?'<p class="err">'+esc(S.err)+'</p>':'')+'<div class="row"><button class="btn primary" data-act="imp-save"'+(bons.length&&!S.busy?'':' disabled')+'>'+(S.busy?'Enregistrement…':'Enregistrer ces '+bons.length+' élèves')+'</button></div></div>';
+  }
+  return h;
+}
+function verifierImport(){
+  const I=S.imp,vus=new Set(elevesOf(I.classe).map(e=>cleNom(e.nom,e.prenom)));
+  I.lignes=lireListe(I.texte).map(r=>{const k=cleNom(r.nom,r.prenom);r.doublon=r.ok&&vus.has(k);if(r.ok)vus.add(k);return r});
+  S.err=I.lignes.length?'':'La liste est vide.';render(true);
+}
+async function enregistrerImport(){
+  const I=S.imp,rows=(I.lignes||[]).filter(r=>r.ok&&!r.doublon).map(r=>({nom:r.nom,prenom:r.prenom,sexe:r.sexe,classe:I.classe}));
+  if(!rows.length)return;S.busy=true;S.err='';render(true);let n=0;
+  try{for(let i=0;i<rows.length;i+=100){const d=chk(await sb.from('eleves').insert(rows.slice(i,i+100)).select(CHAMPS_EL));d.forEach(majEleve);n+=d.length}
+    saveCache();S.busy=false;S.elClasse=I.classe;S.imp=null;S.view=null;render(true);toast(n+' élève'+(n>1?'s':'')+' ajouté'+(n>1?'s':'')+' en '+I.classe+'.')}
+  catch(err){S.busy=false;saveCache();S.err=(n?n+' élèves ont été ajoutés, mais la suite a échoué : ':'')+(estReseau(err)?'pas de réseau.':msgErreur(err));if(n){I.lignes=null}render(true)}
+}
+
 /* ----- Saisies en direct (directeur) ----- */
 async function chargerFeed(){
   if(!isDir()||!sb)return;
@@ -413,6 +523,18 @@ document.addEventListener('click',async ev=>{
   if(a==='del'){S.confirm='del';render(true);return}
   if(a==='del-no'){S.confirm=null;render(true);return}
   if(a==='del-yes')return supprimer();
+  if(a==='go-eleves'){S.tab='eleves';S.elClasse=b.dataset.c;S.view=null;render(true);window.scrollTo(0,0);return}
+  if(a==='elcl'){S.elClasse=b.dataset.c;render(true);return}
+  if(a==='el-new')return ouvrirEleve(null);
+  if(a==='el-edit')return ouvrirEleve(b.dataset.id);
+  if(a==='el-close'){S.view=null;S.elDraft=null;S.imp=null;S.confirm=null;S.err='';render(true);return}
+  if(a==='el-save'){if(!S.busy)enregistrerEleve(false);return}
+  if(a==='el-del'){S.confirm='el-del';render(true);return}
+  if(a==='el-del-no'){S.confirm=null;render(true);return}
+  if(a==='el-del-yes'){if(!S.busy)supprimerEleve();return}
+  if(a==='el-import'){S.imp={classe:S.elClasse||CLASSES[0],texte:'',lignes:null};S.view='import';S.err='';render(true);window.scrollTo(0,0);return}
+  if(a==='imp-check')return verifierImport();
+  if(a==='imp-save'){if(!S.busy)enregistrerImport();return}
   if(a==='sync'){S.online=true;synchroniser();return}
   if(a==='retry'){const o=outbox(),p=o.find(x=>x.pid===b.dataset.pid);if(p){delete p.err;setOutbox(o);synchroniser()}return}
   if(a==='drop'){setOutbox(outbox().filter(x=>x.pid!==b.dataset.pid));render(true);return}
@@ -427,11 +549,16 @@ document.addEventListener('change',ev=>{
   const t=ev.target;
   if(t.dataset.actChange==='classe'){S.classe=t.value;const m=S.matieres.filter(x=>(x.niveaux||[]).includes(S.classe[0]));if(!m.some(x=>x.id===S.matiere))S.matiere=m[0]?m[0].id:null;saveSel();render(true);chargerSelection();return}
   if(t.dataset.actChange==='matiere'){S.matiere=t.value;saveSel();render(true);chargerSelection();return}
+  if(t.dataset.el&&S.elDraft){S.elDraft[t.dataset.el]=t.value;return}
+  if(t.dataset.actChange==='impclasse'&&S.imp){S.imp.classe=t.value;S.imp.lignes=null;S.err='';render(true);return}
   if(t.dataset.actChange==='feedclasse'){S.feedClasse=t.value;S.feedAt=null;render(true);chargerFeed();return}
   if(t.dataset.disp&&S.draft){S.draft.vals[t.dataset.disp].disp=t.checked;render(true)}
 });
 document.addEventListener('input',ev=>{
-  const t=ev.target;if(!S.draft)return;
+  const t=ev.target;
+  if(t.dataset.el&&S.elDraft){S.elDraft[t.dataset.el]=t.value;return}
+  if(t.dataset.imp&&S.imp){S.imp.texte=t.value;return}
+  if(!S.draft)return;
   if(t.dataset.d){S.draft.ev[t.dataset.d]=t.value;return}
   const id=t.dataset.note||t.dataset.nc;if(!id)return;
   const v=S.draft.vals[id];if(t.dataset.note)v.note=t.value;else v.nc=t.value;
@@ -468,7 +595,7 @@ async function demarrer(){
 window.addEventListener('online',()=>{S.online=true;renderHead();rafraichir()});
 window.addEventListener('offline',()=>{S.online=false;renderHead()});
 setInterval(()=>{if(document.visibilityState==='visible'&&S.uid&&isDir()&&S.tab==='direct')chargerFeed()},15000);
-setInterval(()=>{if(document.visibilityState==='visible'&&S.uid&&S.view!=='edit'&&navigator.onLine)rafraichir()},60000);
+setInterval(()=>{if(document.visibilityState==='visible'&&S.uid&&!enFormulaire()&&navigator.onLine)rafraichir()},60000);
 setInterval(()=>{if(S.uid&&navigator.onLine&&outbox().some(p=>!p.err))synchroniser()},30000);
 document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&S.uid&&navigator.onLine){synchroniser();if(S.tab==='direct')chargerFeed()}});
 if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js').catch(()=>{});

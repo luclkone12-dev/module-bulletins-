@@ -6,6 +6,7 @@ Page de saisie des notes de l'École Néhémie de Katibougou (second cycle).
 - Chaque enseignant ne voit que ses classes et ses matières.
 - Saisie des devoirs (/20) et des compositions (notes de classe /20, composition /40, élèves dispensés).
 - Saisie possible sans réseau : les notes partent automatiquement au retour de la connexion.
+- Le directeur et le secrétariat gèrent les élèves (onglet « Élèves ») : ajout un par un ou en collant une liste, modification, changement de classe.
 - Le directeur suit les saisies en direct (mise à jour toutes les 15 secondes).
 
 Les données sont dans la base Supabase **BULLETINS-NEHEMIE**, protégée par des règles d'accès.
