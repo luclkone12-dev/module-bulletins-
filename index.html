@@ -32,7 +32,7 @@ button,input,select{font:inherit;color:inherit}
 .dot{width:9px;height:9px;border-radius:50%;background:var(--good);display:inline-block}
 .dot.off{background:var(--warn)}
 .tabs{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none}
-.tabs button{border:0;background:transparent;color:var(--head-muted);padding:8px 10px;font-weight:600;border-bottom:3px solid transparent;cursor:pointer;white-space:nowrap}
+.tabs button{border:0;background:transparent;color:var(--head-muted);padding:8px 7px;font-size:.93rem;font-weight:600;border-bottom:3px solid transparent;cursor:pointer;white-space:nowrap}
 .tabs button[aria-selected="true"]{color:var(--head-ink);border-bottom-color:var(--accent)}
 main{max-width:860px;margin:0 auto;padding:16px 16px 56px;display:grid;gap:14px}
 h2{font-family:var(--display);font-size:1.15rem;margin:0}
@@ -259,7 +259,7 @@ async function synchroniser(){
 }
 
 /* ===== Affichage ===== */
-const enFormulaire=()=>S.view==='edit'||S.view==='eleve'||S.view==='import';
+const enFormulaire=()=>S.view==='edit'||S.view==='eleve'||S.view==='import'||!!(S.reg&&S.reg.form);
 function render(force){
   renderHead();
   const a=document.activeElement;
@@ -279,7 +279,7 @@ function renderHead(){
     if(errs)s+='<span style="color:#ffb4ab">'+errs+' refusée'+(errs>1?'s':'')+'</span>';
     s+='</div>';
     if(isBureau()){const t=(k,l)=>'<button role="tab" data-act="tab" data-k="'+k+'" aria-selected="'+(S.tab===k)+'">'+l+'</button>';
-      s+='<nav class="tabs" role="tablist">'+t('saisie','Notes')+t('bulletins','Bulletins')+t('eleves','Élèves')+(isDir()?t('direct','En direct'):'')+'</nav>'}
+      s+='<nav class="tabs" role="tablist">'+t('saisie','Notes')+t('bulletins','Bulletins')+t('eleves','Élèves')+(isDir()?t('direct','En direct')+t('reglages','Réglages'):'')+'</nav>'}
   }
   h.innerHTML=s;
 }
@@ -293,6 +293,7 @@ function viewMain(){
   if(S.tab==='bulletins'&&isBureau())return S.view==='bulletin'?viewBulletin():viewBulletins();
   if(S.tab==='eleves'&&isBureau())return viewEleves();
   if(S.tab==='direct'&&isDir())return viewDirect();
+  if(S.tab==='reglages'&&isDir())return viewReglages();
   return viewSaisie();
 }
 function viewLogin(){
@@ -625,6 +626,154 @@ function imprimer(mode,seul){
   setTimeout(()=>window.print(),60);
 }
 
+/* ----- Réglages (directeur seul) : comptes, classes et matières des enseignants, matières, école ----- */
+S.reg={sec:'ens',etat:null,err:'',form:null,busy:false,manque:false};
+const NIVEAUX=['7','8','9'];
+function errRpc(e){const m=String(e&&e.message||'');
+  if(e&&(e.code==='PGRST202'||/could not find the function|schema cache/i.test(m))){S.reg.manque=true;return 'La base n\'est pas encore prête pour les réglages (script à exécuter dans Supabase).'}
+  if(estReseau(e))return 'Pas de réseau : réessayez quand la connexion revient.';
+  return m||'Erreur inconnue'}
+async function rpc(f,args){const r=await sb.rpc(f,args);if(r.error)throw r.error;return r.data}
+async function chargerReglages(){
+  if(!isDir())return;
+  try{S.reg.etat=await rpc('admin_etat',{p_annee:S.annee});S.reg.err='';S.reg.manque=false}
+  catch(e){S.reg.err=errRpc(e)}
+  if(S.tab==='reglages')render();
+}
+const roleNom=r=>ROLES[r]||r;
+function viewReglages(){
+  const R=S.reg;
+  if(R.form)return R.form.type==='compte'?viewFormCompte():R.form.type==='matiere'?viewFormMatiere():viewReglages();
+  const sec=(k,l)=>'<button class="chip" data-act="rg-sec" data-k="'+k+'" aria-pressed="'+(R.sec===k)+'">'+l+'</button>';
+  let h='<div class="card"><h2>Réglages</h2><div class="chips">'+sec('ens','Enseignants et comptes')+sec('mat','Matières')+sec('eco','École')+'</div><p class="small muted">Réservé au directeur.</p></div>';
+  if(R.manque)h+='<div class="notice warn"><b>Réglages pas encore activés</b><p class="small">Il faut d\'abord exécuter le script « Réglages du directeur » dans l\'éditeur SQL de Supabase (une seule fois).</p></div>';
+  else if(R.err)h+='<div class="notice warn small">'+esc(R.err)+'</div>';
+  if(R.sec==='ens')return h+viewComptes();
+  if(R.sec==='mat')return h+viewMatieres();
+  return h+viewEcole();
+}
+function viewComptes(){
+  const E=S.reg.etat;
+  let h='<div class="row between"><h2>Comptes</h2><button class="btn primary" data-act="rg-new-compte"'+(S.reg.manque?' disabled':'')+'>+ Nouveau compte</button></div>';
+  if(!E)return h+(S.reg.manque?'':'<div class="card"><p class="muted">Chargement…</p></div>');
+  const aff=E.affectations||[],ordre={directeur:0,secretariat:1,enseignant:2};
+  const cs=[...E.comptes].sort((a,b)=>(b.actif-a.actif)||(ordre[a.role]-ordre[b.role])||String(a.nom).localeCompare(b.nom,'fr'));
+  h+='<div class="list">'+cs.map(c=>{const mine=aff.filter(a=>a.user_id===c.id);
+    const det=c.role==='enseignant'?(mine.length?[...new Set(mine.map(a=>a.classe))].sort().map(cl=>cl+' : '+mine.filter(a=>a.classe===cl).map(a=>matName(a.matiere)).join(', ')).join(' · '):'Aucune classe attribuée'):roleNom(c.role);
+    return '<div class="li"><span class="no small">'+(c.actif?'':'⏸')+'</span><span><b>'+esc(c.nom)+'</b>'+(c.actif?'':' <span class="badge warn">désactivé</span>')+'<br><span class="small muted">'+esc(c.identifiant)+' · '+esc(det)+'</span></span><button class="btn sm" data-act="rg-edit-compte" data-id="'+c.id+'">Modifier</button></div>'}).join('')+'</div>';
+  return h+'<p class="small muted">Un enseignant qui part : désactivez son compte. Ses notes et l\'historique de ses saisies restent.</p>';
+}
+function ouvrirCompte(id){
+  const E=S.reg.etat;let f;
+  if(id){const c=E.comptes.find(x=>x.id===id);if(!c)return;
+    f={type:'compte',id,identifiant:c.identifiant,nom:c.nom,role:c.role,actif:c.actif,mdp:'',aff:{}};
+    (E.affectations||[]).filter(a=>a.user_id===id).forEach(a=>f.aff[a.classe+'|'+a.matiere]=true)}
+  else f={type:'compte',id:null,identifiant:'',nom:'',role:'enseignant',actif:true,mdp:'',aff:{}};
+  f.affAvant=JSON.stringify(Object.keys(f.aff).sort());
+  S.reg.form=f;S.reg.err='';S.confirm=null;render(true);window.scrollTo(0,0);
+}
+function viewFormCompte(){
+  const f=S.reg.form,neuf=!f.id,moi=f.id===S.uid;
+  let h='<button class="btn ghost" data-act="rg-close">← Retour</button><div class="card"><h2>'+(neuf?'Nouveau compte':'Modifier le compte')+'</h2><div class="form">'+
+    '<div class="field"><label for="rg-nom">Nom et prénom *</label><input id="rg-nom" data-rg="nom" value="'+esc(f.nom)+'" autocapitalize="words"></div>'+
+    '<div class="field"><label for="rg-id">Identifiant de connexion *</label><input id="rg-id" data-rg="identifiant" value="'+esc(f.identifiant)+'" autocapitalize="none" spellcheck="false"'+(neuf?' placeholder="ex. m.traore"':' disabled')+'></div>'+
+    '<div class="field"><label for="rg-role">Rôle</label><select id="rg-role" data-rg="role"'+(moi?' disabled':'')+'>'+Object.keys(ROLES).map(r=>'<option value="'+r+'"'+(r===f.role?' selected':'')+'>'+ROLES[r]+'</option>').join('')+'</select></div>'+
+    '<div class="field"><label for="rg-mdp">'+(neuf?'Mot de passe * (6 caractères au moins)':'Nouveau mot de passe (laisser vide pour ne pas changer)')+'</label><input id="rg-mdp" data-rg="mdp" value="'+esc(f.mdp)+'" autocomplete="off" autocapitalize="none" spellcheck="false"></div></div>';
+  if(!neuf&&!moi)h+='<label class="row small"><input type="checkbox" data-rg="actif"'+(f.actif?' checked':'')+' style="width:22px;height:22px"> Compte actif (décochez pour désactiver : la personne ne peut plus se connecter)</label>';
+  if(neuf)h+='<p class="small muted">L\'identifiant : lettres sans accent, chiffres, point ou tiret, sans espace. Notez le mot de passe pour le donner à la personne.</p>';
+  h+='</div>';
+  if(f.role==='enseignant'){
+    h+='<div class="card"><h2>Classes et matières · '+esc(S.annee)+'</h2><p class="small muted">Touchez les matières que cet enseignant enseigne dans chaque classe.</p>';
+    CLASSES.forEach(c=>{const ms=matsFor(c);h+='<div><b class="small">'+c+'</b><div class="chips" style="flex-wrap:wrap">'+ms.map(m=>{const k=c+'|'+m.id;return '<button class="chip" data-act="rg-aff" data-k="'+esc(k)+'" aria-pressed="'+!!f.aff[k]+'">'+esc(m.nom)+'</button>'}).join('')+'</div></div>'});
+    h+='</div>';
+  }
+  h+=(S.reg.err?'<p class="err">'+esc(S.reg.err)+'</p>':'')+'<div class="row"><button class="btn primary" data-act="rg-save-compte"'+(S.reg.busy?' disabled':'')+'>'+(S.reg.busy?'Enregistrement…':'Enregistrer')+'</button><button class="btn" data-act="rg-close">Annuler</button></div>';
+  return h;
+}
+async function enregistrerCompte(){
+  const f=S.reg.form,neuf=!f.id;
+  if(!String(f.nom).trim()){S.reg.err='Le nom est obligatoire.';render(true);return}
+  if(neuf&&!String(f.identifiant).trim()){S.reg.err='L\'identifiant est obligatoire.';render(true);return}
+  if((neuf||f.mdp)&&String(f.mdp).length<6){S.reg.err='Le mot de passe doit avoir au moins 6 caractères.';render(true);return}
+  S.reg.busy=true;S.reg.err='';render(true);
+  try{
+    let id=f.id;
+    if(neuf)id=await rpc('admin_creer_compte',{p_identifiant:f.identifiant.trim().toLowerCase(),p_nom:f.nom.trim(),p_role:f.role,p_mdp:f.mdp});
+    else{await rpc('admin_modifier_compte',{p_id:id,p_nom:f.nom.trim(),p_role:f.role,p_actif:!!f.actif});
+      if(f.mdp)await rpc('admin_mot_de_passe',{p_id:id,p_mdp:f.mdp})}
+    const cles=Object.keys(f.aff).filter(k=>f.aff[k]).sort(),liste=f.role==='enseignant'?cles:[];
+    if(neuf?liste.length:JSON.stringify(liste)!==f.affAvant)
+      await rpc('admin_affectations',{p_user:id,p_annee:S.annee,p_liste:liste.map(k=>{const [classe,matiere]=k.split('|');return {classe,matiere}})});
+    S.reg.busy=false;S.reg.form=null;
+    toast(neuf?'Compte créé : '+f.identifiant.trim().toLowerCase()+' / '+f.mdp:(f.mdp?'Compte et mot de passe enregistrés.':'Compte enregistré.'));
+    await chargerReglages();rafraichir();
+  }catch(e){S.reg.busy=false;S.reg.err=errRpc(e);render(true)}
+}
+function viewMatieres(){
+  const ms=[...S.matieres].sort((a,b)=>(a.ordre??99)-(b.ordre??99)||String(a.nom).localeCompare(b.nom,'fr'));
+  const act=ms.filter(m=>(m.niveaux||[]).length),ret=ms.filter(m=>!(m.niveaux||[]).length);
+  const ligne=(m,i)=>'<div class="li"><span class="no small">'+(i+1)+'</span><span><b>'+esc(m.nom)+'</b><br><span class="small muted">'+((m.niveaux||[]).length?NIVEAUX.filter(n=>(m.niveaux||[]).includes(n)).map(n=>n+'e : coef '+fmtN(coefFor(m,n))).join(' · '):'Retirée des bulletins')+'</span></span><button class="btn sm" data-act="rg-edit-mat" data-id="'+esc(m.id)+'">Modifier</button></div>';
+  let h='<div class="row between"><h2>Matières</h2><button class="btn primary" data-act="rg-new-mat"'+(S.reg.manque?' disabled':'')+'>+ Nouvelle matière</button></div>';
+  h+='<div class="list">'+act.map(ligne).join('')+'</div>';
+  if(ret.length)h+='<h2>Matières retirées</h2><p class="small muted">Elles ont déjà des notes, gardées dans la base. Modifiez-les pour les remettre sur les bulletins.</p><div class="list">'+ret.map(ligne).join('')+'</div>';
+  return h+'<p class="small muted">L\'ordre fixe la place de la matière sur le bulletin.</p>';
+}
+function ouvrirMatiere(id){
+  const m=id?S.matieres.find(x=>x.id===id):null;
+  const f={type:'matiere',id:m?m.id:null,nom:m?m.nom:'',ordre:m?String(m.ordre??''):String(S.matieres.reduce((x,y)=>Math.max(x,y.ordre||0),0)+1),niv:{},coef:{}};
+  NIVEAUX.forEach(n=>{f.niv[n]=m?(m.niveaux||[]).includes(n):true;f.coef[n]=m&&m.coefs&&m.coefs[n]!=null?fmtN(Number(m.coefs[n])):'1'});
+  S.reg.form=f;S.reg.err='';S.confirm=null;render(true);window.scrollTo(0,0);
+}
+function viewFormMatiere(){
+  const f=S.reg.form,neuf=!f.id;
+  let h='<button class="btn ghost" data-act="rg-close">← Retour</button><div class="card"><h2>'+(neuf?'Nouvelle matière':'Modifier la matière')+'</h2><div class="form">'+
+    '<div class="field"><label for="rg-mnom">Nom *</label><input id="rg-mnom" data-rg="nom" value="'+esc(f.nom)+'"></div>'+
+    '<div class="field"><label for="rg-ordre">Ordre sur le bulletin</label><input id="rg-ordre" data-rg="ordre" inputmode="numeric" value="'+esc(f.ordre)+'"></div></div>'+
+    '<div class="tw"><table><thead><tr><th>Niveau</th><th>Enseignée</th><th class="n">Coefficient</th></tr></thead><tbody>'+
+    NIVEAUX.map(n=>'<tr><td><b>'+n+'e</b></td><td><input type="checkbox" data-rgniv="'+n+'"'+(f.niv[n]?' checked':'')+' aria-label="Enseignée en '+n+'e"></td><td class="n"><input class="noteinp" inputmode="decimal" data-rgcoef="'+n+'" value="'+esc(f.coef[n])+'" aria-label="Coefficient en '+n+'e"></td></tr>').join('')+'</tbody></table></div>';
+  h+=(S.reg.err?'<p class="err">'+esc(S.reg.err)+'</p>':'')+'<div class="row"><button class="btn primary" data-act="rg-save-mat"'+(S.reg.busy?' disabled':'')+'>Enregistrer</button><button class="btn" data-act="rg-close">Annuler</button>';
+  if(!neuf)h+=S.confirm==='rg-del-mat'?'<div class="confirm"><span>Retirer <b>'+esc(f.nom)+'</b> ? Si elle a déjà des notes, elle est seulement retirée des bulletins et les notes restent. Les enseignants ne la verront plus.</span><button class="btn sm danger" data-act="rg-del-mat-yes">Oui, retirer</button><button class="btn sm" data-act="rg-del-mat-no">Non</button></div>':'<button class="btn danger" data-act="rg-del-mat">Retirer</button>';
+  return h+'</div></div>';
+}
+async function enregistrerMatiere(){
+  const f=S.reg.form;if(!String(f.nom).trim()){S.reg.err='Le nom est obligatoire.';render(true);return}
+  const niveaux=NIVEAUX.filter(n=>f.niv[n]),coefs={};
+  for(const n of niveaux){const c=parseNote(f.coef[n],20);if(c==null||Number.isNaN(c)||c<=0){S.reg.err='Coefficient invalide en '+n+'e.';render(true);return}coefs[n]=c}
+  const ordre=parseInt(f.ordre,10);
+  S.reg.busy=true;S.reg.err='';render(true);
+  try{await rpc('admin_matiere',{p_id:f.id||null,p_nom:f.nom.trim(),p_niveaux:niveaux,p_coefs:coefs,p_ordre:isFinite(ordre)?ordre:null});
+    S.reg.busy=false;S.reg.form=null;toast('Matière enregistrée.');await rafraichir()}
+  catch(e){S.reg.busy=false;S.reg.err=errRpc(e);render(true)}
+}
+async function retirerMatiere(){
+  const f=S.reg.form;S.reg.busy=true;render(true);
+  try{const r=await rpc('admin_retirer_matiere',{p_id:f.id});S.reg.busy=false;S.reg.form=null;S.confirm=null;
+    toast(r==='supprimee'?'Matière supprimée.':'Matière retirée des bulletins (ses notes restent).');await rafraichir();chargerReglages()}
+  catch(e){S.reg.busy=false;S.confirm=null;S.reg.err=errRpc(e);render(true)}
+}
+function viewEcole(){
+  const E=S.reg.eco||(S.reg.eco={nom:S.ecole,directeur:S.directeur||'',annee:S.annee,logo:S.logo||''});
+  let h='<div class="card"><h2>École</h2><div class="form">'+
+    '<div class="field"><label for="rg-enom">Nom de l\'école</label><input id="rg-enom" data-rgeco="nom" value="'+esc(E.nom)+'"></div>'+
+    '<div class="field"><label for="rg-edir">Nom du directeur (sur les bulletins)</label><input id="rg-edir" data-rgeco="directeur" value="'+esc(E.directeur)+'"></div>'+
+    '<div class="field"><label for="rg-ean">Année scolaire en cours</label><input id="rg-ean" data-rgeco="annee" value="'+esc(E.annee)+'" placeholder="2026-2027"></div></div>'+
+    '<div class="row">'+(E.logo?'<img src="'+esc(E.logo)+'" alt="Logo" style="width:72px;height:72px;object-fit:contain;border:1px solid var(--line);border-radius:8px;background:#fff">':'')+'<label class="btn"><input type="file" accept="image/*" data-rglogo="1" hidden>'+(E.logo?'Changer le logo':'Ajouter le logo')+'</label>'+(E.logo?'<button class="btn ghost sm" data-act="rg-logo-del">Retirer le logo</button>':'')+'</div>'+
+    '<p class="small muted">Changer l\'année scolaire fait commencer une nouvelle année : les classes des enseignants seront à attribuer de nouveau pour cette année.</p>'+
+    (S.reg.err?'<p class="err">'+esc(S.reg.err)+'</p>':'')+'<div class="row"><button class="btn primary" data-act="rg-save-eco"'+(S.reg.busy||S.reg.manque?' disabled':'')+'>Enregistrer</button></div></div>';
+  return h;
+}
+function lireLogo(file){
+  const fr=new FileReader();fr.onload=()=>{const img=new Image();img.onload=()=>{const k=Math.min(1,240/Math.max(img.width,img.height)),c=document.createElement('canvas');c.width=Math.round(img.width*k);c.height=Math.round(img.height*k);c.getContext('2d').drawImage(img,0,0,c.width,c.height);S.reg.eco.logo=c.toDataURL('image/png');render(true)};img.src=fr.result};fr.readAsDataURL(file);
+}
+async function enregistrerEcole(){
+  const E=S.reg.eco,an=String(E.annee).trim().replace(/\s+/g,'');
+  if(!/^\d{4}-\d{4}$/.test(an)){S.reg.err='Année scolaire au format 2026-2027.';render(true);return}
+  S.reg.busy=true;S.reg.err='';render(true);
+  try{await rpc('admin_reglage_ecole',{p_valeur:{nom:String(E.nom).trim()||'École Néhémie de Katibougou',directeur:String(E.directeur).trim(),annee:an,logo:E.logo||''}});
+    S.reg.busy=false;S.reg.eco=null;toast('Réglages de l\'école enregistrés.');await rafraichir()}
+  catch(e){S.reg.busy=false;S.reg.err=errRpc(e);render(true)}
+}
+
 /* ----- Saisies en direct (directeur) ----- */
 async function chargerFeed(){
   if(!isDir()||!sb)return;
@@ -673,7 +822,21 @@ document.addEventListener('submit',async ev=>{
 document.addEventListener('click',async ev=>{
   const b=ev.target.closest('[data-act]');if(!b||b.tagName==='SELECT')return;
   const a=b.dataset.act;
-  if(a==='tab'){S.tab=b.dataset.k;S.view=null;if(S.tab==='bulletins'&&!S.bulClasse)S.bulClasse=S.classe||CLASSES[0];render(true);if(S.tab==='direct')chargerFeed();if(S.tab==='bulletins')chargerBulletins();return}
+  if(a==='tab'){S.tab=b.dataset.k;S.view=null;if(S.tab==='bulletins'&&!S.bulClasse)S.bulClasse=S.classe||CLASSES[0];render(true);if(S.tab==='direct')chargerFeed();if(S.tab==='bulletins')chargerBulletins();if(S.tab==='reglages'){S.reg.form=null;chargerReglages()}return}
+  if(a==='rg-sec'){S.reg.sec=b.dataset.k;S.reg.err='';render(true);if(b.dataset.k==='ens'&&!S.reg.etat)chargerReglages();return}
+  if(a==='rg-new-compte')return ouvrirCompte(null);
+  if(a==='rg-edit-compte')return ouvrirCompte(b.dataset.id);
+  if(a==='rg-aff'){const f=S.reg.form,k=b.dataset.k;f.aff[k]=!f.aff[k];b.setAttribute('aria-pressed',String(!!f.aff[k]));return}
+  if(a==='rg-save-compte'){if(!S.reg.busy)enregistrerCompte();return}
+  if(a==='rg-close'){S.reg.form=null;S.reg.err='';S.confirm=null;render(true);return}
+  if(a==='rg-new-mat')return ouvrirMatiere(null);
+  if(a==='rg-edit-mat')return ouvrirMatiere(b.dataset.id);
+  if(a==='rg-save-mat'){if(!S.reg.busy)enregistrerMatiere();return}
+  if(a==='rg-del-mat'){S.confirm='rg-del-mat';render(true);return}
+  if(a==='rg-del-mat-no'){S.confirm=null;render(true);return}
+  if(a==='rg-del-mat-yes'){if(!S.reg.busy)retirerMatiere();return}
+  if(a==='rg-save-eco'){if(!S.reg.busy)enregistrerEcole();return}
+  if(a==='rg-logo-del'){S.reg.eco.logo='';render(true);return}
   if(a==='bulcl'){S.bulClasse=b.dataset.c;render(true);chargerBulletins();return}
   if(a==='bul'){S.bulId=b.dataset.id;S.view='bulletin';render(true);window.scrollTo(0,0);return}
   if(a==='bul-close'){S.view=null;render(true);return}
@@ -713,6 +876,9 @@ document.addEventListener('click',async ev=>{
 });
 document.addEventListener('change',ev=>{
   const t=ev.target;
+  if(S.reg.form&&(t.dataset.rg||t.dataset.rgniv||t.dataset.rgcoef)){regChamp(t);if(t.dataset.rg==='role')render(true);return}
+  if(t.dataset.rgeco&&S.reg.eco){S.reg.eco[t.dataset.rgeco]=t.value;return}
+  if(t.dataset.rglogo&&t.files&&t.files[0]){lireLogo(t.files[0]);return}
   if(t.dataset.actChange==='classe'){S.classe=t.value;const m=S.matieres.filter(x=>(x.niveaux||[]).includes(S.classe[0]));if(!m.some(x=>x.id===S.matiere))S.matiere=m[0]?m[0].id:null;saveSel();render(true);chargerSelection();return}
   if(t.dataset.actChange==='matiere'){S.matiere=t.value;saveSel();render(true);chargerSelection();return}
   if(t.dataset.el&&S.elDraft){S.elDraft[t.dataset.el]=t.value;return}
@@ -722,8 +888,14 @@ document.addEventListener('change',ev=>{
   if(t.dataset.d==='matiere'&&S.draft){S.draft.ev.matiere=t.value;render(true);return}
   if(t.dataset.actChange==='bulclasse'){S.bulClasse=t.value;S.view=null;render(true);chargerBulletins();return}
 });
+function regChamp(t){const f=S.reg.form;
+  if(t.dataset.rg)f[t.dataset.rg]=t.type==='checkbox'?t.checked:t.value;
+  else if(t.dataset.rgniv)f.niv[t.dataset.rgniv]=t.checked;
+  else if(t.dataset.rgcoef)f.coef[t.dataset.rgcoef]=t.value}
 document.addEventListener('input',ev=>{
   const t=ev.target;
+  if(S.reg.form&&(t.dataset.rg||t.dataset.rgniv||t.dataset.rgcoef)){regChamp(t);return}
+  if(t.dataset.rgeco&&S.reg.eco){S.reg.eco[t.dataset.rgeco]=t.value;return}
   if(t.dataset.el&&S.elDraft){S.elDraft[t.dataset.el]=t.value;return}
   if(t.dataset.imp&&S.imp){S.imp.texte=t.value;return}
   if(!S.draft)return;
