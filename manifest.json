@@ -1,0 +1,11 @@
+{
+  "name": "Bulletins Néhémie",
+  "short_name": "Bulletins",
+  "description": "Saisie des notes de l'École Néhémie de Katibougou",
+  "lang": "fr",
+  "start_url": "./",
+  "scope": "./",
+  "display": "standalone",
+  "background_color": "#eef2f7",
+  "theme_color": "#13294b"
+}
