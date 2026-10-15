@@ -451,9 +451,9 @@ function viewEleveForm(){
   const inp=(k,l,t,extra)=>'<div class="field"><label for="e-'+k+'">'+l+'</label><input id="e-'+k+'" data-el="'+k+'" type="'+(t||'text')+'" value="'+esc(e[k])+'"'+(extra||'')+'></div>';
   let h='<button class="btn ghost" data-act="el-close">← Retour</button><div class="card"><h2>'+(neuf?'Nouvel élève':'Modifier l\'élève')+'</h2><div class="form">'+
     inp('nom','Nom *','text',' autocapitalize="characters"')+inp('prenom','Prénom(s) *','text',' autocapitalize="words"')+
-    '<div class="field"><label for="e-sexe">Sexe</label><select id="e-sexe" data-el="sexe"><option value="">—</option><option value="F"'+(e.sexe==='F'?' selected':'')+'>Fille</option><option value="M"'+(e.sexe==='M'?' selected':'')+'>Garçon</option></select></div>'+
+    '<div class="field"><label for="e-sexe">Sexe *</label><select id="e-sexe" data-el="sexe"><option value="">—</option><option value="F"'+(e.sexe==='F'?' selected':'')+'>Fille</option><option value="M"'+(e.sexe==='M'?' selected':'')+'>Garçon</option></select></div>'+
     '<div class="field"><label for="e-classe">Classe</label><select id="e-classe" data-el="classe">'+CLASSES.map(c=>'<option'+(c===e.classe?' selected':'')+'>'+c+'</option>').join('')+'</select></div>'+
-    inp('matricule','Matricule')+inp('naissance_date','Date de naissance','date')+inp('naissance_lieu','Lieu de naissance')+
+    '<div class="field"><label for="e-matricule">Matricule</label><input id="e-matricule" type="text" value="'+esc(e.matricule||'')+'" readonly placeholder="Attribué automatiquement" aria-describedby="e-mat-aide"><span id="e-mat-aide" class="small muted">'+(e.matricule?'Ne se modifie pas.':'Donné à l\'enregistrement, selon le sexe (F ou G).')+'</span></div>'+inp('naissance_date','Date de naissance','date')+inp('naissance_lieu','Lieu de naissance')+
     inp('parent_nom','Nom du parent')+inp('parent_tel','Téléphone WhatsApp du parent','tel',' inputmode="tel" placeholder="ex. 76 00 00 00"')+'</div>';
   h+=(S.err?'<p class="err">'+esc(S.err)+'</p>':'')+'<div class="row"><button class="btn primary" data-act="el-save"'+(S.busy?' disabled':'')+'>'+(S.busy?'Enregistrement…':'Enregistrer')+'</button><button class="btn" data-act="el-close">Annuler</button>';
   if(!neuf)h+=S.confirm==='el-del'?'<div class="confirm"><span>Supprimer <b>'+esc(nomEleve(e))+'</b> ? <b>Toutes ses notes seront effacées.</b> Pour un élève qui change de classe, changez plutôt la classe ci-dessus.</span><button class="btn sm danger" data-act="el-del-yes">Oui, supprimer</button><button class="btn sm" data-act="el-del-no">Non</button></div>':'<button class="btn danger" data-act="el-del">Supprimer</button>';
@@ -462,15 +462,16 @@ function viewEleveForm(){
 async function enregistrerEleve(force){
   const e=S.elDraft,nom=String(e.nom).trim().replace(/\s+/g,' '),prenom=String(e.prenom).trim().replace(/\s+/g,' ');
   if(!nom||!prenom){S.err='Le nom et le prénom sont obligatoires.';render(true);return}
+  if(e.sexe!=='F'&&e.sexe!=='M'){S.err='Indiquez si c\'est une fille ou un garçon : le matricule en dépend.';render(true);return}
   if(!force){const k=cleNom(nom,prenom),d=S.eleves.find(x=>x.id!==e.id&&x.classe===e.classe&&cleNom(x.nom,x.prenom)===k);
     if(d&&!confirm(nomEleve(d)+' est déjà inscrit(e) en '+e.classe+'. Enregistrer quand même un second élève de ce nom ?'))return}
   const v=t=>{t=String(t??'').trim();return t||null};
-  const row={nom:nom.toUpperCase(),prenom,sexe:e.sexe||null,classe:e.classe,matricule:v(e.matricule),naissance_date:v(e.naissance_date),naissance_lieu:v(e.naissance_lieu),parent_nom:v(e.parent_nom),parent_tel:v(e.parent_tel)};
+  const row={nom:nom.toUpperCase(),prenom,sexe:e.sexe,classe:e.classe,naissance_date:v(e.naissance_date),naissance_lieu:v(e.naissance_lieu),parent_nom:v(e.parent_nom),parent_tel:v(e.parent_tel)};
   S.busy=true;S.err='';render(true);
   try{const r=e.id?chk(await sb.from('eleves').update(row).eq('id',e.id).select(champsEl()).single()):chk(await sb.from('eleves').insert(row).select(champsEl()).single());
     majEleve(r);saveCache();S.busy=false;S.elClasse=r.classe;
     if(e.id){S.view=S.vueAvant||null;S.elDraft=null;render(true);toast('Élève enregistré.')}
-    else{S.elDraft={nom:'',prenom:'',sexe:'',classe:r.classe,matricule:'',naissance_date:'',naissance_lieu:'',parent_nom:'',parent_tel:''};render(true);toast(nomEleve(r)+' ajouté(e). Vous pouvez saisir le suivant.');const n=document.getElementById('e-nom');if(n)n.focus()}
+    else{S.elDraft={nom:'',prenom:'',sexe:'',classe:r.classe,matricule:'',naissance_date:'',naissance_lieu:'',parent_nom:'',parent_tel:''};render(true);toast(nomEleve(r)+' ajouté(e)'+(r.matricule?', matricule '+r.matricule:'')+'. Vous pouvez saisir le suivant.');const n=document.getElementById('e-nom');if(n)n.focus()}
   }catch(err){S.busy=false;S.err=estReseau(err)?'Pas de réseau : réessayez quand la connexion revient.':(err.code==='23505'?'Ce matricule est déjà utilisé par un autre élève.':msgErreur(err));render(true)}
 }
 async function supprimerEleve(){
@@ -496,17 +497,18 @@ function lireListe(txt){
 function viewImport(){
   const I=S.imp;
   let h='<button class="btn ghost" data-act="el-close">← Retour</button><div class="card"><h2>Coller une liste d\'élèves</h2>'+
-    '<p class="small muted">Une ligne par élève : le <b>NOM</b> en majuscules puis le ou les prénoms. Ajoutez <b>F</b> (fille) ou <b>G</b> (garçon) en fin de ligne si vous le connaissez. Les numéros en début de ligne sont ignorés. Vous pouvez copier la liste depuis Excel ou WhatsApp.</p>'+
+    '<p class="small muted">Une ligne par élève : le <b>NOM</b> en majuscules puis le ou les prénoms. Terminez chaque ligne par <b>F</b> (fille) ou <b>G</b> (garçon) : c\'est obligatoire, le matricule en dépend. Les numéros en début de ligne sont ignorés. Vous pouvez copier la liste depuis Excel ou WhatsApp.</p>'+
     '<div class="field"><label for="i-cl">Classe</label><select id="i-cl" data-act-change="impclasse">'+CLASSES.map(c=>'<option'+(c===I.classe?' selected':'')+'>'+c+'</option>').join('')+'</select></div>'+
-    '<div class="field"><label for="i-txt">Liste</label><textarea id="i-txt" data-imp="1" rows="10" placeholder="1. COULIBALY Aminata F&#10;2. DIARRA Moussa G&#10;3. KONÉ Jean-Baptiste">'+esc(I.texte)+'</textarea></div>'+
+    '<div class="field"><label for="i-txt">Liste</label><textarea id="i-txt" data-imp="1" rows="10" placeholder="1. COULIBALY Aminata F&#10;2. DIARRA Moussa G&#10;3. KONÉ Jean-Baptiste G">'+esc(I.texte)+'</textarea></div>'+
     '<div class="row"><button class="btn" data-act="imp-check">Vérifier la liste</button></div></div>';
   if(I.lignes){
-    const bons=I.lignes.filter(r=>r.ok&&!r.doublon),bad=I.lignes.filter(r=>!r.ok),dbl=I.lignes.filter(r=>r.ok&&r.doublon);
+    const bons=I.lignes.filter(r=>r.ok&&!r.doublon&&r.sexe),bad=I.lignes.filter(r=>!r.ok),dbl=I.lignes.filter(r=>r.ok&&r.doublon),ss=I.lignes.filter(r=>r.ok&&!r.doublon&&!r.sexe);
     h+='<div class="card"><h2>'+bons.length+' élève'+(bons.length>1?'s':'')+' à ajouter en '+esc(I.classe)+'</h2>';
     if(bad.length)h+='<div class="notice warn small"><b>'+bad.length+' ligne(s) sans prénom, ignorée(s) :</b> '+bad.map(r=>esc(r.brut)).join(' · ')+'</div>';
+    if(ss.length)h+='<div class="notice warn small"><b>'+ss.length+' ligne(s) sans F ni G, non ajoutée(s) :</b> '+ss.map(r=>esc(r.nom+' '+r.prenom)).join(' · ')+'. Ajoutez F ou G en fin de ligne, puis vérifiez à nouveau.</div>';
     if(dbl.length)h+='<div class="notice small"><b>'+dbl.length+' déjà inscrit(s) dans la classe, ignoré(s) :</b> '+dbl.map(r=>esc(r.nom+' '+r.prenom)).join(' · ')+'</div>';
     h+='<p class="small muted">Vérifiez que le nom et le prénom sont bien séparés. Sinon, corrigez la liste et vérifiez à nouveau.</p>';
-    if(bons.length)h+='<div class="tw"><table><thead><tr><th class="n">N°</th><th>Nom</th><th>Prénom(s)</th><th>Sexe</th></tr></thead><tbody>'+bons.map((r,i)=>'<tr><td class="n">'+(i+1)+'</td><td><b>'+esc(r.nom)+'</b></td><td>'+esc(r.prenom)+'</td><td>'+(r.sexe==='F'?'F':r.sexe==='M'?'G':'–')+'</td></tr>').join('')+'</tbody></table></div>';
+    if(bons.length)h+='<div class="tw"><table><thead><tr><th class="n">N°</th><th>Nom</th><th>Prénom(s)</th><th>Sexe</th></tr></thead><tbody>'+bons.map((r,i)=>'<tr><td class="n">'+(i+1)+'</td><td><b>'+esc(r.nom)+'</b></td><td>'+esc(r.prenom)+'</td><td>'+(r.sexe==='F'?'F':'G')+'</td></tr>').join('')+'</tbody></table></div>';
     h+=(S.err?'<p class="err">'+esc(S.err)+'</p>':'')+'<div class="row"><button class="btn primary" data-act="imp-save"'+(bons.length&&!S.busy?'':' disabled')+'>'+(S.busy?'Enregistrement…':'Enregistrer ces '+bons.length+' élèves')+'</button></div></div>';
   }
   return h;
@@ -517,7 +519,7 @@ function verifierImport(){
   S.err=I.lignes.length?'':'La liste est vide.';render(true);
 }
 async function enregistrerImport(){
-  const I=S.imp,rows=(I.lignes||[]).filter(r=>r.ok&&!r.doublon).map(r=>({nom:r.nom,prenom:r.prenom,sexe:r.sexe,classe:I.classe}));
+  const I=S.imp,rows=(I.lignes||[]).filter(r=>r.ok&&!r.doublon&&r.sexe).map(r=>({nom:r.nom,prenom:r.prenom,sexe:r.sexe,classe:I.classe}));
   if(!rows.length)return;S.busy=true;S.err='';render(true);let n=0;
   try{for(let i=0;i<rows.length;i+=100){const d=chk(await sb.from('eleves').insert(rows.slice(i,i+100)).select(champsEl()));d.forEach(majEleve);n+=d.length}
     saveCache();S.busy=false;S.elClasse=I.classe;S.imp=null;S.view=null;render(true);toast(n+' élève'+(n>1?'s':'')+' ajouté'+(n>1?'s':'')+' en '+I.classe+'.')}
