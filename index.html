@@ -31,6 +31,11 @@ button,input,select{font:inherit;color:inherit}
 .status{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:.85rem;color:var(--head-muted)}
 .dot{width:9px;height:9px;border-radius:50%;background:var(--good);display:inline-block}
 .dot.off{background:var(--warn)}
+.pod{list-style:none;margin:0;padding:0;display:grid}
+.pod li{display:grid;grid-template-columns:3.2rem 1fr auto;gap:10px;align-items:center;padding:7px 0;border-top:1px solid var(--line);min-width:0}
+.pod li:first-child{border-top:0}.pod-r{font-weight:700;font-variant-numeric:tabular-nums}.pod-n{min-width:0;overflow-wrap:anywhere}.pod-m{font-variant-numeric:tabular-nums}
+.stat th[scope=row]{text-align:left;text-transform:none;letter-spacing:0;font-size:.9rem;color:var(--ink);background:transparent;font-weight:600}
+.doc table.st-print th,.doc table.st-print td{padding:4px 3px;font-size:.88em}
 .pres{display:grid;gap:8px}.pres h2{margin:0}
 .pres-l{list-style:none;margin:0;padding:0;display:grid}
 .pres-l li{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--line);min-width:0}
@@ -152,7 +157,7 @@ const ROLES={directeur:'Directeur',secretariat:'Secrétariat',enseignant:'Enseig
 const CLASSES=['7e A','7e B','8e A','8e B','9e A','9e B'];
 const sb=(window.supabase&&window.supabase.createClient)?window.supabase.createClient(SB_URL,SB_KEY,{auth:{persistSession:true,autoRefreshToken:true,storageKey:'bn-auth'}}):null;
 
-const S={presents:[],rolesP:{},uid:null,profil:null,annee:'2026-2027',ecole:'École Néhémie de Katibougou',matieres:[],aff:[],eleves:[],evals:[],notes:{},verrous:[],noms:{},
+const S={statsP:null,statsAt:0,statsBusy:false,presents:[],rolesP:{},uid:null,profil:null,annee:'2026-2027',ecole:'École Néhémie de Katibougou',matieres:[],aff:[],eleves:[],evals:[],notes:{},verrous:[],noms:{},
   classe:null,matiere:null,trim:1,tab:'saisie',view:null,draft:null,confirm:null,err:'',bulClasse:null,bulId:null,bulCharge:{},directeur:'',logo:'',
   feed:[],feedAt:null,feedClasse:'',feedErr:'',online:navigator.onLine,syncing:false,lastSync:null,charge:false,busy:false};
 const $app=document.getElementById('app');
@@ -308,7 +313,7 @@ function viewMain(){
   if(S.view==='edit')return viewEdit();
   if(S.view==='eleve'&&isBureau())return viewEleveForm();
   if(S.view==='import'&&isBureau())return viewImport();
-  if(S.tab==='bulletins'&&isBureau())return S.view==='bulletin'?viewBulletin():viewBulletins();
+  if(S.tab==='bulletins'&&isBureau())return S.view==='bulletin'?viewBulletin():S.view==='stats'?viewStats():viewBulletins();
   if(S.tab==='messages'&&isBureau())return S.view==='msg-dev'?viewMsgDevoir():S.view==='msg-bul'?viewMsgBul():viewMessages();
   if(S.tab==='eleves'&&isBureau())return viewEleves();
   if(S.tab==='direct'&&isDir())return viewDirect();
@@ -593,7 +598,7 @@ function viewBulletins(){
   const c=CLASSES.includes(S.bulClasse)?S.bulClasse:(S.classe||CLASSES[0]);S.bulClasse=c;
   const res=classResults(c,S.trim),eff=res.length;
   let h='<div class="card"><h2>Bulletins</h2><div class="chips" role="group" aria-label="Classe">'+CLASSES.map(k=>'<button class="chip" data-act="bulcl" data-c="'+k+'" aria-pressed="'+(k===c)+'">'+k+'</button>').join('')+'</div>'+trimChips()+
-    '<p class="small muted">Les bulletins se remplissent tout seuls avec les notes saisies par les enseignants (notes de classe, compositions et devoirs).</p></div>';
+    '<p class="small muted">Les bulletins se remplissent tout seuls avec les notes saisies par les enseignants (notes de classe, compositions et devoirs).</p><div class="row"><button class="btn" data-act="stats-open">Palmarès et statistiques</button></div></div>';
   if(!eff)return h+'<div class="notice warn"><b>Aucun élève en '+esc(c)+'</b><p class="small">Ajoutez d\'abord les élèves de la classe.</p><div><button class="btn sm" data-act="go-eleves" data-c="'+esc(c)+'">Ajouter les élèves de '+esc(c)+'</button></div></div>';
   if(!S.bulCharge[c]&&S.online)h+='<p class="small muted">Chargement des notes de la classe…</p>';
   const ctl=controle(c,S.trim);
@@ -647,6 +652,84 @@ function imprimer(mode,seul){
   else h=docs.map(d=>'<div class="feuille un">'+d+'</div>').join('');
   document.getElementById('print').innerHTML=h;
   document.getElementById('pagefmt').textContent='@page{size:A4 '+(mode===2?'landscape':'portrait')+';margin:8mm}';
+  setTimeout(()=>window.print(),60);
+}
+
+/* ----- Palmarès et statistiques (directeur et secrétariat) -----
+   Période : 1er, 2e, 3e trimestre ou année (moyenne annuelle = moyenne des trois trimestres).
+   - A composé : l'élève a au moins une note de composition dans le trimestre (pour l'année : ses trois moyennes existent).
+   - A la moyenne : moyenne générale ≥ 10/20, parmi ceux qui ont composé.
+   - Taux de réussite = ont la moyenne ÷ ont composé ; taux d'échec = le reste.
+   - Palmarès : les trois premiers de chaque classe, puis les trois premiers de toute l'école (ex æquo compris). */
+async function chargerToutesNotes(tout){
+  if(!isBureau()||!sb)return;
+  const ids=S.evals.filter(e=>tout||!S.notes[e.id]).map(e=>e.id);
+  S.statsBusy=true;if(S.tab==='bulletins'&&S.view==='stats')render();
+  try{if(ids.length){await chargerNotes(ids);saveCache()}CLASSES.forEach(c=>S.bulCharge[c]=true);S.statsAt=Date.now()}
+  catch(e){if(estReseau(e))S.online=false}
+  S.statsBusy=false;if(S.tab==='bulletins'&&S.view==='stats')render();
+}
+const periodeNom=p=>p==='an'?'Année '+S.annee:trimName(p);
+function aCompose(e,by){return Object.values(by).some(b=>{if(!b.compo)return false;const n=(vueNotes(b.compo.id)||{})[e.id];return !!n&&!n.dispense&&num(n.note)})}
+function resultatsPeriode(c,p){
+  if(p==='an')return annualResults(c).map(r=>({e:r.e,moy:r.moyAn,rang:r.rang,ex:r.ex,comp:num(r.moyAn)}));
+  const by=indexClasse(c,p);
+  return classResults(c,p).map(r=>({e:r.e,moy:r.b.moyGen,rang:r.rang,ex:r.ex,comp:aCompose(r.e,by)}));
+}
+function compter(list){
+  const z=f=>{const L=list.filter(f),comp=L.filter(r=>r.comp),moy=comp.filter(r=>num(r.moy)&&r.moy>=10).length;
+    return {eff:L.length,comp:comp.length,moy,reu:comp.length?moy/comp.length*100:null,ech:comp.length?(comp.length-moy)/comp.length*100:null}};
+  return {G:z(r=>r.e.sexe==='M'),F:z(r=>r.e.sexe==='F'),T:z(()=>true)};
+}
+const pct=v=>num(v)?(Math.round(v*10)/10).toFixed(1).replace('.',',')+' %':'–';
+const LIGNES_STAT=[['eff','Effectif',String],['comp','Ont composé',String],['moy','Ont la moyenne (≥ 10)',String],['reu','Taux de réussite',pct],['ech','Taux d\'échec',pct]];
+function donneesStats(p){
+  const parClasse=CLASSES.map(c=>{const res=resultatsPeriode(c,p);
+    const manque=p==='an'?[1,2,3].some(t=>controle(c,t).length):controle(c,p).length>0;
+    return {c,res,st:compter(res),podium:res.filter(r=>r.rang&&r.rang<=3).sort((a,b)=>a.rang-b.rang||String(a.e.nom).localeCompare(b.e.nom,'fr')),manque}});
+  const tous=parClasse.flatMap(x=>x.res).map(r=>({...r}));
+  rankList(tous,r=>r.moy);
+  const podium=tous.filter(r=>r.rang&&r.rang<=3).sort((a,b)=>a.rang-b.rang||String(a.e.nom).localeCompare(b.e.nom,'fr'));
+  return {parClasse,podium,st:compter(tous),provisoire:parClasse.filter(x=>x.manque&&x.res.length).map(x=>x.c)};
+}
+function tableStat(st){
+  return '<div class="tw"><table class="stat"><thead><tr><th></th><th class="n">Garçons</th><th class="n">Filles</th><th class="n">Total</th></tr></thead><tbody>'+
+    LIGNES_STAT.map(([k,l,f])=>'<tr><th scope="row">'+l+'</th><td class="n">'+f(st.G[k])+'</td><td class="n">'+f(st.F[k])+'</td><td class="n"><b>'+f(st.T[k])+'</b></td></tr>').join('')+'</tbody></table></div>';
+}
+function lignePodium(r,avecClasse){
+  return '<li><span class="pod-r">'+rangTxt(r.rang,r.ex,r.e.sexe)+'</span><span class="pod-n"><b>'+esc(nomEleve(r.e))+'</b>'+(avecClasse?' <span class="small muted">'+esc(r.e.classe)+'</span>':'')+'</span><span class="pod-m '+cls(r.moy)+'">'+fmt3(r.moy)+'</span></li>';
+}
+function viewStats(){
+  const p=S.statsP||S.trim,D=donneesStats(p);
+  let h='<button class="btn ghost" data-act="stats-close">← Bulletins</button><div class="card"><h2>Palmarès et statistiques</h2>'+
+    '<div class="chips" role="group" aria-label="Période">'+[1,2,3,'an'].map(k=>'<button class="chip" data-act="stats-p" data-p="'+k+'" aria-pressed="'+(p===k)+'">'+(k==='an'?'Année':trimName(k))+'</button>').join('')+'</div>'+
+    '<div class="row"><button class="btn primary" data-act="stats-print">Imprimer</button><button class="btn" data-act="stats-maj"'+(S.statsBusy?' disabled':'')+'>'+(S.statsBusy?'Chargement des notes…':'Actualiser les notes')+'</button></div>'+
+    (S.statsAt?'<p class="small muted">Notes à jour à '+heure(S.statsAt)+'.</p>':'')+'</div>';
+  if(!S.eleves.length)return h+'<div class="notice warn"><b>Aucun élève inscrit.</b><p class="small">Ajoutez d\'abord les élèves dans l\'onglet Élèves.</p></div>';
+  if(D.provisoire.length)h+='<div class="notice warn"><b>Résultats provisoires</b><p class="small">Des notes manquent encore en '+D.provisoire.map(esc).join(', ')+'. Les moyennes et les rangs changeront quand tout sera saisi.</p></div>';
+  h+='<div class="card"><h2>Les 3 premiers de l\'école · '+esc(periodeNom(p))+'</h2>'+(D.podium.length?'<ol class="pod">'+D.podium.map(r=>lignePodium(r,true)).join('')+'</ol>':'<p class="small muted">Pas encore de moyennes pour cette période.</p>')+'</div>';
+  h+='<div class="card"><h2>Toute l\'école</h2>'+tableStat(D.st)+'</div>';
+  D.parClasse.forEach(x=>{
+    h+='<div class="card"><h2>'+esc(x.c)+'</h2>';
+    if(!x.res.length){h+='<p class="small muted">Aucun élève inscrit.</p></div>';return}
+    h+=(x.podium.length?'<ol class="pod">'+x.podium.map(r=>lignePodium(r,false)).join('')+'</ol>':'<p class="small muted">Pas encore de moyennes.</p>')+tableStat(x.st)+'</div>'});
+  return h;
+}
+function imprimerStats(){
+  const p=S.statsP||S.trim,D=donneesStats(p),f3=v=>num(v)?fmt3(v):'';
+  const cols=[['eff',String],['comp',String],['moy',String],['reu',pct],['ech',pct]];
+  const ligne=(nom,st,gras)=>'<tr><td class="'+(gras?'lb':'')+'">'+nom+'</td>'+cols.map(([k,f])=>['G','F','T'].map(x=>'<td class="c">'+(gras||x==='T'?'<b>'+f(st[x][k])+'</b>':f(st[x][k]))+'</td>').join('')).join('')+'</tr>';
+  let h='<div class="feuille un"><div class="doc"><div class="dhead">'+(S.logo?'<img src="'+esc(S.logo)+'" alt="">':'<span></span>')+'<div><h3>'+esc(S.ecole.toUpperCase())+'</h3><p>Second Cycle</p><p class="it">Palmarès et statistiques · '+esc(periodeNom(p))+'</p><p class="it sm">Année scolaire : '+esc(S.annee.replace(/\s*-\s*/,' - '))+'</p></div><span></span></div>';
+  if(D.provisoire.length)h+='<p class="sm it">Résultats provisoires : des notes manquent encore en '+D.provisoire.map(esc).join(', ')+'.</p>';
+  h+='<table><thead><tr><th colspan="4">Les trois premiers de l\'école</th></tr><tr><th>Rang</th><th class="l">Nom et prénom</th><th>Classe</th><th>Moyenne</th></tr></thead><tbody>'+
+    (D.podium.length?D.podium.map(r=>'<tr><td class="c">'+rangTxt(r.rang,r.ex,r.e.sexe)+'</td><td><b>'+esc((r.e.nom||'').toUpperCase())+'</b> '+esc(r.e.prenom||'')+'</td><td class="c">'+esc(r.e.classe)+'</td><td class="c"><b>'+f3(r.moy)+'</b></td></tr>').join(''):'<tr><td colspan="4" class="c">Pas encore de moyennes</td></tr>')+'</tbody></table>';
+  h+='<table><thead><tr><th colspan="4">Les trois premiers de chaque classe</th></tr><tr><th>Classe</th><th>Rang</th><th class="l">Nom et prénom</th><th>Moyenne</th></tr></thead><tbody>'+
+    D.parClasse.map(x=>x.podium.length?x.podium.map((r,i)=>'<tr>'+(i===0?'<td class="c lb" rowspan="'+x.podium.length+'">'+esc(x.c)+'</td>':'')+'<td class="c">'+rangTxt(r.rang,r.ex,r.e.sexe)+'</td><td><b>'+esc((r.e.nom||'').toUpperCase())+'</b> '+esc(r.e.prenom||'')+'</td><td class="c">'+f3(r.moy)+'</td></tr>').join(''):'<tr><td class="c lb">'+esc(x.c)+'</td><td colspan="3" class="c">–</td></tr>').join('')+'</tbody></table>';
+  h+='<table class="st-print"><thead><tr><th rowspan="2">Classe</th><th colspan="3">Effectif</th><th colspan="3">Ont composé</th><th colspan="3">Ont la moyenne</th><th colspan="3">Taux de réussite</th><th colspan="3">Taux d\'échec</th></tr><tr>'+cols.map(()=>'<th>G</th><th>F</th><th>T</th>').join('')+'</tr></thead><tbody>'+
+    D.parClasse.map(x=>ligne(esc(x.c),x.st,false)).join('')+ligne('Total école',D.st,true)+'</tbody></table>';
+  h+='<div class="dfoot"><div></div><div class="dcol"><table><thead><tr><th>Le Directeur</th></tr></thead><tbody><tr><td class="c">'+esc(S.directeur||'')+'</td></tr><tr><td class="cachet">Cachet et signature</td></tr></tbody></table></div></div></div></div>';
+  document.getElementById('print').innerHTML=h;
+  document.getElementById('pagefmt').textContent='@page{size:A4 portrait;margin:8mm}';
   setTimeout(()=>window.print(),60);
 }
 
@@ -1208,6 +1291,11 @@ document.addEventListener('click',async ev=>{
   if(a==='bulcl'){S.bulClasse=b.dataset.c;render(true);chargerBulletins();return}
   if(a==='bul'){S.bulId=b.dataset.id;S.view='bulletin';render(true);window.scrollTo(0,0);return}
   if(a==='bul-close'){S.view=null;render(true);return}
+  if(a==='stats-open'){S.view='stats';if(!S.statsP)S.statsP=S.trim;render(true);window.scrollTo(0,0);chargerToutesNotes();return}
+  if(a==='stats-close'){S.view=null;render(true);window.scrollTo(0,0);return}
+  if(a==='stats-p'){const v=b.dataset.p;S.statsP=v==='an'?'an':+v;render(true);return}
+  if(a==='stats-maj'){chargerToutesNotes(true);return}
+  if(a==='stats-print'){imprimerStats();return}
   if(a==='print'){const ctl=controle(S.bulClasse,S.trim);if(ctl.length&&!confirm('Des notes manquent encore en '+S.bulClasse+' ('+ctl.map(x=>x.m.nom).join(', ')+'). Les bulletins auront des moyennes provisoires. Imprimer quand même ?'))return;imprimer(+b.dataset.n);return}
   if(a==='print-one'){imprimer(1,S.bulId);return}
   if(a==='cours'){S.classe=b.dataset.c;S.matiere=b.dataset.m;saveSel();render(true);return}
