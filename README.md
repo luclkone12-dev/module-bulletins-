@@ -18,3 +18,5 @@ La clé écrite dans `index.html` est une clé publique : elle ne donne accès �
 - `index.html` : la page
 - `sw.js` : garde la page sur le téléphone pour l'ouvrir hors connexion
 - `manifest.json` : permet d'ajouter la page à l'écran d'accueil du téléphone
+
+Pour l'entretien et le fonctionnement interne, voir [GUIDE-TECHNIQUE.md](GUIDE-TECHNIQUE.md).
