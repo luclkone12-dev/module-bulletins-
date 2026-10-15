@@ -31,6 +31,10 @@ button,input,select{font:inherit;color:inherit}
 .status{display:flex;gap:8px;align-items:center;flex-wrap:wrap;font-size:.85rem;color:var(--head-muted)}
 .dot{width:9px;height:9px;border-radius:50%;background:var(--good);display:inline-block}
 .dot.off{background:var(--warn)}
+.pres{display:grid;gap:8px}.pres h2{margin:0}
+.pres-l{list-style:none;margin:0;padding:0;display:grid}
+.pres-l li{display:grid;grid-template-columns:auto 1fr auto;gap:10px;align-items:center;padding:8px 0;border-top:1px solid var(--line);min-width:0}
+.pres-t{min-width:0;overflow-wrap:anywhere}.pres-h{white-space:nowrap;font-variant-numeric:tabular-nums}
 .tabs{display:flex;gap:2px;overflow-x:auto;scrollbar-width:none}
 .tabs button{border:0;background:transparent;color:var(--head-muted);padding:8px 7px;font-size:.93rem;font-weight:600;border-bottom:3px solid transparent;cursor:pointer;white-space:nowrap}
 .tabs button[aria-selected="true"]{color:var(--head-ink);border-bottom-color:var(--accent)}
@@ -148,7 +152,7 @@ const ROLES={directeur:'Directeur',secretariat:'Secrétariat',enseignant:'Enseig
 const CLASSES=['7e A','7e B','8e A','8e B','9e A','9e B'];
 const sb=(window.supabase&&window.supabase.createClient)?window.supabase.createClient(SB_URL,SB_KEY,{auth:{persistSession:true,autoRefreshToken:true,storageKey:'bn-auth'}}):null;
 
-const S={uid:null,profil:null,annee:'2026-2027',ecole:'École Néhémie de Katibougou',matieres:[],aff:[],eleves:[],evals:[],notes:{},verrous:[],noms:{},
+const S={presents:[],rolesP:{},uid:null,profil:null,annee:'2026-2027',ecole:'École Néhémie de Katibougou',matieres:[],aff:[],eleves:[],evals:[],notes:{},verrous:[],noms:{},
   classe:null,matiere:null,trim:1,tab:'saisie',view:null,draft:null,confirm:null,err:'',bulClasse:null,bulId:null,bulCharge:{},directeur:'',logo:'',
   feed:[],feedAt:null,feedClasse:'',feedErr:'',online:navigator.onLine,syncing:false,lastSync:null,charge:false,busy:false};
 const $app=document.getElementById('app');
@@ -277,6 +281,7 @@ function render(force){
   const a=document.activeElement;
   if(!force&&enFormulaire()&&a&&$app.contains(a)&&/^(INPUT|TEXTAREA|SELECT)$/.test(a.tagName))return;
   $app.innerHTML=viewMain();
+  presenceSignal();
   if(S.tab==='messages'&&(S.view==='msg-dev'||S.view==='msg-bul'))apercu();
 }
 function renderHead(){
@@ -292,7 +297,7 @@ function renderHead(){
     if(errs)s+='<span style="color:#ffb4ab">'+errs+' refusée'+(errs>1?'s':'')+'</span>';
     s+='</div>';
     if(isBureau()){const t=(k,l)=>'<button role="tab" data-act="tab" data-k="'+k+'" aria-selected="'+(S.tab===k)+'">'+l+'</button>';
-      s+='<nav class="tabs" role="tablist">'+t('saisie','Notes')+t('bulletins','Bulletins')+t('messages','Messages')+t('eleves','Élèves')+(isDir()?t('direct','En direct')+t('reglages','Réglages'):'')+'</nav>'}
+      s+='<nav class="tabs" role="tablist">'+t('saisie','Notes')+t('bulletins','Bulletins')+t('messages','Messages')+t('eleves','Élèves')+(isDir()?t('direct','En direct'+((S.presents||[]).length?' · '+S.presents.length:''))+t('reglages','Réglages'):'')+'</nav>'}
   }
   h.innerHTML=s;
 }
@@ -1108,12 +1113,57 @@ function ligneFeed(r){
   return '<div class="li"><span class="t">'+heure(r.le)+'<br>'+dateFr(String(r.le).slice(0,10))+'</span><span><span class="small muted">'+qui+' · '+ctx+'</span><br>'+quoi+'</span></div>';
 }
 function viewDirect(){
-  let h='<div class="row between"><h2>Saisies en direct</h2><select class="noteinp" style="width:auto;text-align:left" data-act-change="feedclasse" aria-label="Filtrer par classe"><option value="">Toutes les classes</option>'+CLASSES.map(c=>'<option'+(c===S.feedClasse?' selected':'')+'>'+c+'</option>').join('')+'</select></div>';
+  let h=viewPresents()+'<div class="row between"><h2>Saisies en direct</h2><select class="noteinp" style="width:auto;text-align:left" data-act-change="feedclasse" aria-label="Filtrer par classe"><option value="">Toutes les classes</option>'+CLASSES.map(c=>'<option'+(c===S.feedClasse?' selected':'')+'>'+c+'</option>').join('')+'</select></div>';
   h+='<p class="small muted">Chaque note saisie par un enseignant apparaît ici. Le fil se met à jour toutes les 15 secondes'+(S.feedAt?' (dernière mise à jour à '+heure(S.feedAt)+')':'')+'.</p>';
   if(S.feedErr)h+='<div class="notice warn small">'+esc(S.feedErr)+'</div>';
   if(!S.feedAt&&!S.feedErr)return h+'<div class="card"><p>Chargement…</p></div>';
   if(!S.feed.length)return h+'<div class="card"><p class="muted">Aucune saisie pour le moment.</p></div>';
   return h+'<div class="list feed">'+S.feed.map(ligneFeed).join('')+'</div>';
+}
+
+/* ----- Personnes connectées (présence en temps réel) -----
+   Chaque page ouverte signale sa présence sur un canal Supabase Realtime, sans rien écrire dans la base.
+   Le signal ne contient que l'identifiant interne du compte et l'écran ouvert ; le directeur retrouve les noms
+   dans les profils. Une page passée en arrière-plan (téléphone verrouillé, autre application) se retire. */
+const PR={ch:null,etat:'',sig:'',depuis:0};
+function presenceActivite(){
+  if(!S.profil)return '';
+  if(S.tab==='saisie'||!isBureau()){const c=[S.classe,matName(S.matiere)].filter(Boolean).join(' · ');return (S.view==='edit'?'Saisit des notes':'Notes')+(c?' · '+c:'')}
+  return ({bulletins:'Bulletins',messages:'Messages aux parents',eleves:'Élèves',direct:'En direct',reglages:'Réglages'})[S.tab]||'';
+}
+function presenceSignal(){
+  if(!PR.ch||PR.etat!=='SUBSCRIBED')return;
+  if(document.visibilityState!=='visible'){if(PR.sig){PR.sig='';PR.ch.untrack().catch(()=>{})}return}
+  const a=presenceActivite(),sig=S.uid+'|'+a;if(sig===PR.sig)return;PR.sig=sig;
+  if(!PR.depuis)PR.depuis=Date.now();
+  PR.ch.track({u:S.uid,a,depuis:PR.depuis,maj:Date.now()}).catch(()=>{PR.sig=''});
+}
+function demarrerPresence(){
+  if(PR.ch||!sb||!S.uid||!S.profil||!sb.channel)return;
+  try{
+    PR.ch=sb.channel('bn-presence',{config:{presence:{key:S.uid}}});
+    PR.ch.on('presence',{event:'sync'},()=>{majPresents()});
+    PR.ch.subscribe(st=>{PR.etat=st;if(st==='SUBSCRIBED'){PR.sig='';presenceSignal()}majPresents()});
+  }catch(_){PR.ch=null}
+}
+async function arreterPresence(){if(PR.ch){try{await PR.ch.untrack();await sb.removeChannel(PR.ch)}catch(_){}PR.ch=null;PR.etat='';PR.sig=''}}
+async function majPresents(){
+  if(!isDir()||!PR.ch)return;
+  const st=PR.ch.presenceState(),L=[];
+  Object.keys(st).forEach(k=>{const m=(st[k]||[]).slice().sort((x,y)=>(y.maj||0)-(x.maj||0))[0];if(m&&k!==S.uid)L.push({u:k,a:m.a||'',depuis:m.depuis||m.maj||Date.now()})});
+  S.presents=L;
+  const inconnus=L.map(p=>p.u).filter(u=>!S.noms[u]||!S.rolesP[u]);
+  if(inconnus.length&&S.online){try{const pf=chk(await sb.from('profils').select('id,nom,role').in('id',inconnus));pf.forEach(p=>{S.noms[p.id]=p.nom;S.rolesP[p.id]=p.role})}catch(_){}}
+  S.presents.sort((x,y)=>(S.noms[x.u]||'').localeCompare(S.noms[y.u]||'','fr'));
+  renderHead();if(S.tab==='direct'&&S.view!=='edit')render();
+}
+function viewPresents(){
+  const L=S.presents||[];
+  let h='<div class="card pres"><div class="row between"><h2>Connectés maintenant</h2><span class="badge'+(L.length?' ok':'')+'">'+L.length+' en ligne</span></div>';
+  if(PR.etat!=='SUBSCRIBED')return h+'<p class="small muted">'+(S.online?'Connexion au suivi en cours…':'Hors connexion : la liste reviendra avec le réseau.')+'</p></div>';
+  if(!L.length)return h+'<p class="small muted">Personne d\'autre n\'a la page ouverte en ce moment.</p></div>';
+  h+='<ul class="pres-l">'+L.map(p=>'<li><span class="dot"></span><span class="pres-t"><b>'+esc(S.noms[p.u]||'Compte')+'</b> <span class="small muted">'+esc(ROLES[S.rolesP[p.u]]||'')+'</span><br><span class="small">'+esc(p.a||'Page ouverte')+'</span></span><span class="small muted pres-h">depuis '+heure(p.depuis)+'</span></li>').join('')+'</ul>';
+  return h+'<p class="small muted">Une personne apparaît ici tant que la page est ouverte à l\'écran sur son téléphone.</p></div>';
 }
 
 /* ===== Événements ===== */
@@ -1188,7 +1238,7 @@ document.addEventListener('click',async ev=>{
   if(a==='logout'){
     const n=outbox().filter(p=>!p.err).length;
     if(n&&!confirm(n+' saisie(s) ne sont pas encore envoyées. Si vous quittez maintenant, elles seront perdues. Quitter quand même ?'))return;
-    lsDel(kCache());lsDel(kOut());lsDel(kSel());try{await sb.auth.signOut({scope:'local'})}catch(_){}
+    await arreterPresence();lsDel(kCache());lsDel(kOut());lsDel(kSel());try{await sb.auth.signOut({scope:'local'})}catch(_){}
     location.reload();
   }
 });
@@ -1234,7 +1284,7 @@ async function chargerSelection(){
 /* ===== Démarrage et mises à jour ===== */
 async function rafraichir(){
   if(!sb||!S.uid)return;
-  try{await chargerTout();await synchroniser();if(S.tab==='messages')chargerMessages()}
+  try{await chargerTout();demarrerPresence();await synchroniser();if(S.tab==='messages')chargerMessages()}
   catch(e){
     if(e.code==='PROFIL'){lsDel(kCache());await sb.auth.signOut({scope:'local'}).catch(()=>{});S.uid=null;S.profil=null;S.charge=false;S.err='Ce compte n\'a pas accès aux bulletins (ou il a été désactivé). Voyez la direction.'}
     else if(estReseau(e))S.online=false;
@@ -1255,7 +1305,7 @@ window.addEventListener('offline',()=>{S.online=false;renderHead()});
 setInterval(()=>{if(document.visibilityState==='visible'&&S.uid&&isDir()&&S.tab==='direct')chargerFeed()},15000);
 setInterval(()=>{if(document.visibilityState==='visible'&&S.uid&&!enFormulaire()&&navigator.onLine)rafraichir()},60000);
 setInterval(()=>{if(S.uid&&navigator.onLine&&outbox().some(p=>!p.err))synchroniser()},30000);
-document.addEventListener('visibilitychange',()=>{if(document.visibilityState==='visible'&&S.uid&&navigator.onLine){synchroniser();if(S.tab==='direct')chargerFeed()}});
+document.addEventListener('visibilitychange',()=>{presenceSignal();if(document.visibilityState==='visible'&&S.uid&&navigator.onLine){synchroniser();if(S.tab==='direct')chargerFeed()}});
 if('serviceWorker' in navigator&&location.protocol==='https:')navigator.serviceWorker.register('sw.js').catch(()=>{});
 demarrer();
 </script>
