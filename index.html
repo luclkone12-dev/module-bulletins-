@@ -280,7 +280,7 @@ async function synchroniser(){
 }
 
 /* ===== Affichage ===== */
-const enFormulaire=()=>S.view==='edit'||S.view==='eleve'||S.view==='import'||!!(S.reg&&S.reg.form);
+const enFormulaire=()=>S.view==='edit'||S.view==='def-saisie'||!!(S.def&&S.def.form)||S.view==='eleve'||S.view==='import'||!!(S.reg&&S.reg.form);
 function render(force){
   renderHead();
   const a=document.activeElement;
@@ -302,7 +302,7 @@ function renderHead(){
     if(errs)s+='<span style="color:#ffb4ab">'+errs+' refusée'+(errs>1?'s':'')+'</span>';
     s+='</div>';
     if(isBureau()){const t=(k,l)=>'<button role="tab" data-act="tab" data-k="'+k+'" aria-selected="'+(S.tab===k)+'">'+l+'</button>';
-      s+='<nav class="tabs" role="tablist">'+t('saisie','Notes')+t('bulletins','Bulletins')+t('messages','Messages')+t('eleves','Élèves')+(isDir()?t('direct','En direct'+((S.presents||[]).length?' · '+S.presents.length:''))+t('reglages','Réglages'):'')+'</nav>'}
+      s+='<nav class="tabs" role="tablist">'+t('saisie','Notes')+t('bulletins','Bulletins')+t('messages','Messages')+t('eleves','Élèves')+t('def','DEF')+(isDir()?t('direct','En direct'+((S.presents||[]).length?' · '+S.presents.length:''))+t('reglages','Réglages'):'')+'</nav>'}
   }
   h.innerHTML=s;
 }
@@ -311,6 +311,8 @@ function viewMain(){
   if(!S.uid)return viewLogin();
   if(!S.charge)return '<div class="card"><h2>Chargement des classes…</h2><p class="muted">Un instant.</p></div>';
   if(S.view==='edit')return viewEdit();
+  if(S.view==='def-saisie'&&S.def.saisie)return viewDefSaisie();
+  if(S.tab==='def'&&isBureau())return viewDef();
   if(S.view==='eleve'&&isBureau())return viewEleveForm();
   if(S.view==='import'&&isBureau())return viewImport();
   if(S.tab==='bulletins'&&isBureau())return S.view==='bulletin'?viewBulletin():S.view==='stats'?viewStats():viewBulletins();
@@ -361,6 +363,7 @@ function viewSaisie(){
   const nc=compo&&vueNotes(compo.id),faits=nc?Object.values(nc).filter(x=>x.dispense||num(x.note)).length:0;
   h+='<h2>Composition · '+trimName(S.trim)+'</h2><div class="list"><div class="li"><span class="no small">'+(compo&&faits>=els.length&&els.length?'✓':'')+'</span><span><b>Notes de classe /20 et composition /40</b>'+(compo&&enAttente(compo.id)?' <span class="badge warn">à envoyer</span>':'')+'<br><span class="small muted">'+(compo?(nc?faits+'/'+els.length+' élèves':'notes non chargées'):'Pas encore saisie')+'</span></span><button class="btn sm" data-act="compo"'+dis+(els.length?'':' disabled')+'>'+(compo?'Modifier':'Saisir')+'</button></div></div>';
   h+='<p class="small muted">Ces notes vont directement sur le bulletin. Moyenne de la matière = (notes de classe + composition sur 40) ÷ 3. Si les notes de classe ne sont pas saisies, la moyenne des devoirs les remplace.'+(isBureau()?' Voir l\'onglet <b>Bulletins</b>.':'')+'</p>';
+  h+=blocDefSaisie();
   if(S.lastSync)h+='<p class="small muted">Données à jour à '+heure(S.lastSync)+'.</p>';
   return h;
 }
@@ -1169,6 +1172,146 @@ async function enregistrerEcole(){
   catch(e){S.reg.busy=false;S.reg.err=errRpc(e);render(true)}
 }
 
+/* ----- Examens blancs du DEF (9e A et 9e B) -----
+   Notes sur 20 dans les 8 matières du DEF, avec les coefficients du bulletin de 9e.
+   - La direction et le secrétariat créent les examens blancs et peuvent tout saisir ;
+     chaque enseignant saisit ses propres matières de 9e depuis l'onglet Notes.
+   - Moyenne = Σ(note × coef) ÷ Σ(coef des matières notées) ; incomplète (*) tant qu'une matière manque.
+   - Élève à risque : moyenne ≤ 9,99. Le message aux parents part du WhatsApp du téléphone utilisé. */
+const DEF_MATS=['redaction','dictee','histgeo','maths','sciences','pc','ecm','anglais'];
+const CLASSES_DEF=CLASSES.filter(c=>c[0]==='9');
+S.def={exams:[],notes:{},charge:false,examId:null,classe:null,form:null,saisie:null,confirm:false,busy:false,err:''};
+const defMats=()=>DEF_MATS.map(id=>S.matieres.find(m=>m.id===id)).filter(Boolean);
+const defExam=id=>S.def.exams.find(x=>x.id===id);
+const defRisque=v=>num(v)&&Math.round(v*100)/100<=9.99;
+const defConcerne=()=>isBureau()||mesCours().some(c=>c.classe[0]==='9'&&DEF_MATS.includes(c.matiere));
+async function chargerDef(){
+  if(!sb||!S.uid||!S.profil||!defConcerne())return;
+  try{
+    const ex=chk(await sb.from('examens').select('id,annee,titre,date,cree_le').eq('annee',S.annee).order('date',{ascending:true,nullsFirst:true}).order('cree_le',{ascending:true}));
+    const notes={};ex.forEach(x=>notes[x.id]={});
+    if(ex.length){const rows=await fetchAll(()=>sb.from('notes_examen').select('examen_id,eleve_id,matiere,classe,note').in('examen_id',ex.map(x=>x.id)));
+      rows.forEach(r=>{const n=notes[r.examen_id]||(notes[r.examen_id]={});(n[r.eleve_id]||(n[r.eleve_id]={}))[r.matiere]=r.note==null?null:Number(r.note)})}
+    S.def.exams=ex;S.def.notes=notes;S.def.charge=true;S.def.err='';
+    if(!defExam(S.def.examId))S.def.examId=ex.length?ex[ex.length-1].id:null;
+  }catch(e){if(estReseau(e))S.online=false;else S.def.err=tableManque(e)?'Les examens blancs ne sont pas encore installés dans la base.':msgErreur(e)}
+  if(!enFormulaire())render();
+}
+function defResultats(xid,c){
+  const N=S.def.notes[xid]||{},mats=defMats();
+  const res=elevesOf(c).map(e=>{const n=N[e.id]||{};let pts=0,sc=0,k=0;
+    mats.forEach(m=>{const v=n[m.id];if(num(v)){const co=coefFor(m,'9');pts+=v*co;sc+=co;k++}});
+    return {e,n,moy:sc?pts/sc:null,nb:k,complet:k===mats.length}});
+  rankList(res,r=>r.moy);
+  return res;
+}
+const defCompte=(xid,c,m)=>{const N=S.def.notes[xid]||{};return elevesOf(c).filter(e=>num((N[e.id]||{})[m])).length};
+function msgDef(e,x,r){return bonjour(e)+'Votre enfant '+enfantTxt(e)+', a obtenu une moyenne de *'+fmt(r.moy)+'/20* à l\'examen blanc du DEF ('+x.titre+(x.date?' du '+dateLong(x.date):'')+').\nCette moyenne est insuffisante pour réussir le DEF. Nous vous demandons plus de rigueur et de suivi à la maison dans la préparation de l\'examen. Merci de passer à l\'école pour en parler avec nous.\n\n'+signature()}
+
+/* Bloc affiché aux enseignants de 9e dans l'onglet Notes */
+function blocDefSaisie(){
+  if(!S.classe||S.classe[0]!=='9'||!DEF_MATS.includes(S.matiere)||!S.def.charge)return '';
+  let h='<h2>Examens blancs du DEF · '+esc(matName(S.matiere))+'</h2>';
+  if(!S.def.exams.length)return h+'<p class="small muted">La direction n\'a pas encore créé d\'examen blanc.</p>';
+  const eff=elevesOf(S.classe).length;
+  return h+'<div class="list">'+S.def.exams.map(x=>{const k=defCompte(x.id,S.classe,S.matiere);
+    return '<div class="li"><span class="no small">'+(eff&&k>=eff?'✓':dateFr(x.date))+'</span><span><b>'+esc(x.titre)+'</b><br><span class="small muted">'+(x.date?dateLong(x.date)+' · ':'')+k+'/'+eff+' notes sur 20</span></span><button class="btn sm" data-act="def-saisir" data-x="'+x.id+'" data-c="'+esc(S.classe)+'" data-m="'+esc(S.matiere)+'">'+(k?'Modifier':'Saisir')+'</button></div>'}).join('')+'</div>';
+}
+
+/* Onglet DEF (direction et secrétariat) */
+function viewDef(){
+  const D=S.def;if(!CLASSES_DEF.includes(D.classe))D.classe=CLASSES_DEF[0];
+  let h='<div class="card"><div class="row between"><h2>Examens blancs du DEF</h2><button class="btn primary" data-act="def-new">+ Nouvel examen blanc</button></div>';
+  if(D.form){const f=D.form;
+    h+='<div class="form"><div class="field"><label for="dx-titre">Titre</label><input id="dx-titre" data-dfx="titre" value="'+esc(f.titre)+'"></div><div class="field"><label for="dx-date">Date</label><input id="dx-date" type="date" data-dfx="date" value="'+esc(f.date||'')+'"></div></div>'+
+      (D.err?'<p class="err">'+esc(D.err)+'</p>':'')+'<div class="row"><button class="btn primary" data-act="def-form-save"'+(D.busy?' disabled':'')+'>'+(D.busy?'Enregistrement…':'Enregistrer')+'</button><button class="btn" data-act="def-form-close">Annuler</button>';
+    if(f.id)h+=D.confirm?'<div class="confirm"><span>Supprimer <b>'+esc(f.titre)+'</b> et toutes ses notes ?</span><button class="btn sm danger" data-act="def-del-yes">Oui, supprimer</button><button class="btn sm" data-act="def-del-no">Non</button></div>':'<button class="btn danger" data-act="def-del">Supprimer</button>';
+    return h+'</div></div>';
+  }
+  if(!D.charge)return h+'<p class="small muted">'+(D.err?esc(D.err):(S.online?'Chargement…':'Hors connexion : les examens blancs s\'afficheront au retour du réseau.'))+'</p></div>';
+  if(!D.exams.length)return h+'<p class="small muted">Aucun examen blanc pour '+esc(S.annee)+'. Créez le premier avec le bouton ci-dessus : les enseignants de 9e pourront ensuite saisir leurs notes.</p></div>';
+  const x=defExam(D.examId)||D.exams[D.exams.length-1];D.examId=x.id;
+  h+='<div class="chips" role="group" aria-label="Examen blanc">'+D.exams.map(e=>'<button class="chip" data-act="def-x" data-x="'+e.id+'" aria-pressed="'+(e.id===x.id)+'">'+esc(e.titre)+'</button>').join('')+'</div>'+
+    '<div class="chips" role="group" aria-label="Classe">'+CLASSES_DEF.map(c=>'<button class="chip" data-act="def-c" data-c="'+c+'" aria-pressed="'+(c===D.classe)+'">'+c+'</button>').join('')+'</div>'+
+    '<p class="small muted">'+(x.date?'Passé le '+dateLong(x.date)+'. ':'')+'Notes sur 20, coefficients du bulletin. Élève à risque : moyenne de 9,99 ou moins.</p>'+
+    '<div class="row"><button class="btn" data-act="def-edit">Modifier le titre ou la date</button><button class="btn" data-act="def-print">Imprimer les résultats</button><button class="btn" data-act="def-maj">Actualiser</button></div></div>';
+  const c=D.classe,eff=elevesOf(c).length;
+  if(!eff)return h+'<div class="notice warn"><b>Aucun élève en '+esc(c)+'</b><p class="small">Ajoutez d\'abord les élèves de la classe.</p></div>';
+  // Avancement de la saisie
+  h+='<div class="card"><h2>Saisie des notes · '+esc(c)+'</h2><div class="list">'+defMats().map(m=>{const k=defCompte(x.id,c,m.id);
+    return '<div class="li"><span class="no small">'+(k>=eff?'✓':'')+'</span><span><b>'+esc(m.nom)+'</b> <span class="small muted">coef '+fmtN(coefFor(m,'9'))+'</span><br><span class="small '+(k>=eff?'muted':'')+'">'+k+'/'+eff+' notes</span></span><button class="btn sm" data-act="def-saisir" data-x="'+x.id+'" data-c="'+esc(c)+'" data-m="'+m.id+'">'+(k?'Modifier':'Saisir')+'</button></div>'}).join('')+'</div></div>';
+  // Résultats
+  const res=defResultats(x.id,c),comp=res.filter(r=>r.nb),risque=comp.filter(r=>defRisque(r.moy)),incompl=comp.some(r=>!r.complet);
+  h+='<div class="card"><h2>Résultats · '+esc(c)+'</h2><div class="tw"><table><tbody><tr><th>Effectif</th><td class="n"><b>'+eff+'</b></td><th>Ont composé</th><td class="n"><b>'+comp.length+'</b></td></tr><tr><th>Moyenne ≥ 10</th><td class="n"><b>'+(comp.length-risque.length)+'</b></td><th>À risque</th><td class="n"><b class="'+(risque.length?'low':'')+'">'+risque.length+'</b></td></tr></tbody></table></div>';
+  if(incompl)h+='<p class="small muted">* moyenne provisoire : toutes les matières ne sont pas encore notées pour cet élève.</p>';
+  const tri=[...res].sort((a,b)=>(a.rang||9999)-(b.rang||9999)||String(a.e.nom).localeCompare(b.e.nom,'fr'));
+  h+='<div class="list">'+tri.map(r=>'<div class="li"><span class="no">'+(r.rang||'–')+'</span><span><b>'+esc(nomEleve(r.e))+'</b>'+(defRisque(r.moy)?' <span class="badge warn">à risque</span>':'')+'<br><span class="small muted">'+(r.nb?r.nb+'/'+DEF_MATS.length+' matières · ':'Aucune note')+'</span><span class="small '+cls(r.moy)+'">'+(r.nb?fmt(r.moy)+(r.complet?'':'*'):'')+'</span></span><span></span></div>').join('')+'</div></div>';
+  // Alertes aux parents
+  if(risque.length){
+    h+='<div class="card"><h2>Prévenir les parents des élèves à risque</h2><p class="small muted">Chaque bouton ouvre WhatsApp avec le message prêt, sur ce téléphone. Vérifiez puis envoyez.</p><div class="list">'+
+      risque.map(r=>{const tel=telDigits(r.e.parent_tel);return '<div class="li"><span class="no small low">'+fmt(r.moy)+'</span><span><b>'+esc(nomEleve(r.e))+'</b><br><span class="small muted">'+(tel?'Parent '+telAff(tel):'Pas de numéro de parent')+'</span></span>'+(tel?'<a class="btn sm primary" href="'+esc(waLink(r.e.parent_tel,msgDef(r.e,x,r)))+'" target="_blank" rel="noopener">WhatsApp</a>':'<button class="btn sm" data-act="go-eleves" data-c="'+esc(c)+'">Ajouter</button>')+'</div>'}).join('')+'</div></div>';
+  }
+  return h;
+}
+function viewDefSaisie(){
+  const A=S.def.saisie,x=defExam(A.x);if(!x){S.view=null;return viewMain()}
+  const els=elevesOf(A.c);
+  let h='<button class="btn ghost" data-act="def-close">← Retour</button><div class="card"><h2>'+esc(x.titre)+' · '+esc(A.c)+' · '+esc(matName(A.m))+'</h2><p class="small muted">Notes sur 20. Élève absent : laissez la case vide.</p></div>';
+  if(!els.length)return h+'<div class="notice warn"><b>Aucun élève en '+esc(A.c)+'</b></div>';
+  h+='<div class="list">'+els.map((e,i)=>{const p=parseNote(A.vals[e.id],20);return '<div class="li"><span class="no">'+(i+1)+'</span><b>'+esc(nomEleve(e))+'</b><input class="noteinp'+(Number.isNaN(p)?' bad':'')+'" inputmode="decimal" autocomplete="off" data-dxn="'+e.id+'" value="'+esc(A.vals[e.id])+'" aria-label="Note de '+esc(nomEleve(e))+'"></div>'}).join('')+'</div>';
+  return h+(S.def.err?'<p class="err">'+esc(S.def.err)+'</p>':'')+'<div class="row"><button class="btn primary" data-act="def-save"'+(S.def.busy?' disabled':'')+'>'+(S.def.busy?'Enregistrement…':'Enregistrer')+'</button><button class="btn" data-act="def-close">Annuler</button></div>';
+}
+function ouvrirDefSaisie(xid,c,m){
+  const N=S.def.notes[xid]||{},vals={};elevesOf(c).forEach(e=>{const v=(N[e.id]||{})[m];vals[e.id]=num(v)?fmtN(v):''});
+  S.def.saisie={x:xid,c,m,vals,tab:S.tab};S.def.err='';S.view='def-saisie';render(true);window.scrollTo(0,0);
+}
+async function enregistrerDefSaisie(){
+  const A=S.def.saisie,els=elevesOf(A.c),N=S.def.notes[A.x]||(S.def.notes[A.x]={});
+  const up=[],vides=[];
+  for(const e of els){const v=parseNote(A.vals[e.id],20);
+    if(Number.isNaN(v)){S.def.err='Note invalide pour '+nomEleve(e)+' : un nombre entre 0 et 20.';render(true);return}
+    if(v==null){if(num((N[e.id]||{})[A.m]))vides.push(e.id)}else up.push({examen_id:A.x,eleve_id:e.id,matiere:A.m,classe:A.c,note:v})}
+  if(!navigator.onLine){S.def.err='Pas de réseau : les notes d\'examen blanc s\'enregistrent seulement en ligne. Gardez cet écran ouvert et réessayez au retour du réseau.';render(true);return}
+  S.def.busy=true;S.def.err='';render(true);
+  try{
+    if(up.length)chk(await sb.from('notes_examen').upsert(up,{onConflict:'examen_id,eleve_id,matiere'}));
+    if(vides.length)chk(await sb.from('notes_examen').delete().eq('examen_id',A.x).eq('matiere',A.m).in('eleve_id',vides));
+    up.forEach(r=>{(N[r.eleve_id]||(N[r.eleve_id]={}))[A.m]=r.note});vides.forEach(id=>{if(N[id])delete N[id][A.m]});
+    S.def.busy=false;S.view=null;S.tab=A.tab||S.tab;S.def.saisie=null;render(true);toast(up.length+' note'+(up.length>1?'s':'')+' enregistrée'+(up.length>1?'s':'')+'.');
+  }catch(err){S.def.busy=false;S.def.err=estReseau(err)?'Pas de réseau : réessayez quand la connexion revient.':msgErreur(err);render(true)}
+}
+async function enregistrerDefExam(){
+  const D=S.def,f=D.form,titre=String(f.titre||'').trim().replace(/\s+/g,' ');
+  if(!titre){D.err='Donnez un titre à l\'examen blanc.';render(true);return}
+  D.busy=true;D.err='';render(true);
+  try{const row={titre,date:f.date||null};
+    if(f.id){chk(await sb.from('examens').update(row).eq('id',f.id));Object.assign(defExam(f.id),row)}
+    else{const r=chk(await sb.from('examens').insert({...row,annee:S.annee}).select('id,annee,titre,date,cree_le').single());D.exams.push(r);D.notes[r.id]={};D.examId=r.id}
+    D.busy=false;D.form=null;render(true);toast('Examen blanc enregistré.');
+  }catch(err){D.busy=false;D.err=estReseau(err)?'Pas de réseau : réessayez quand la connexion revient.':msgErreur(err);render(true)}
+}
+async function supprimerDefExam(){
+  const D=S.def,id=D.form&&D.form.id;if(!id)return;D.busy=true;render(true);
+  try{chk(await sb.from('notes_examen').delete().eq('examen_id',id));chk(await sb.from('examens').delete().eq('id',id));
+    D.exams=D.exams.filter(x=>x.id!==id);delete D.notes[id];D.examId=D.exams.length?D.exams[D.exams.length-1].id:null;
+    D.busy=false;D.form=null;D.confirm=false;render(true);toast('Examen blanc supprimé.')}
+  catch(err){D.busy=false;D.confirm=false;D.err=estReseau(err)?'Pas de réseau.':msgErreur(err);render(true)}
+}
+function imprimerDef(){
+  const D=S.def,x=defExam(D.examId),c=D.classe;if(!x)return;
+  const mats=defMats(),res=defResultats(x.id,c).sort((a,b)=>(a.rang||9999)-(b.rang||9999)||String(a.e.nom).localeCompare(b.e.nom,'fr'));
+  const comp=res.filter(r=>r.nb),risque=comp.filter(r=>defRisque(r.moy));
+  let h='<div class="feuille un"><div class="doc"><div class="dhead">'+(S.logo?'<img src="'+esc(S.logo)+'" alt="">':'<span></span>')+'<div><h3>'+esc(S.ecole.toUpperCase())+'</h3><p>Second Cycle</p><p class="it">'+esc(x.titre)+' du DEF · '+classeLong(c)+' '+repart(c)+'</p><p class="it sm">'+(x.date?'Passé le '+dateLong(x.date)+' · ':'')+'Année scolaire : '+esc(S.annee.replace(/\s*-\s*/,' - '))+'</p></div><span></span></div>';
+  h+='<table class="st-print"><thead><tr><th>Rang</th><th class="l">Nom et prénom</th>'+mats.map(m=>'<th>'+esc(m.nom)+'<br><span class="sm">coef '+fmtN(coefFor(m,'9'))+'</span></th>').join('')+'<th>Moyenne</th><th>Observation</th></tr></thead><tbody>'+
+    res.map(r=>'<tr><td class="c">'+(r.rang?rangTxt(r.rang,r.ex,r.e.sexe):'–')+'</td><td><b>'+esc((r.e.nom||'').toUpperCase())+'</b> '+esc(r.e.prenom||'')+'</td>'+mats.map(m=>'<td class="c">'+fmtN(r.n[m.id])+'</td>').join('')+'<td class="c"><b>'+(r.nb?fmt(r.moy)+(r.complet?'':'*'):'')+'</b></td><td class="c">'+(r.nb?(defRisque(r.moy)?'<b>À risque</b>':appr(r.moy)):'Absent(e)')+'</td></tr>').join('')+'</tbody></table>';
+  h+='<table><tbody><tr><td class="lb">Effectif</td><td class="c">'+res.length+'</td><td class="lb">Ont composé</td><td class="c">'+comp.length+'</td><td class="lb">Moyenne ≥ 10</td><td class="c">'+(comp.length-risque.length)+'</td><td class="lb">À risque (≤ 9,99)</td><td class="c">'+risque.length+'</td></tr></tbody></table>';
+  if(comp.some(r=>!r.complet))h+='<p class="sm it">* moyenne provisoire : toutes les matières ne sont pas encore notées.</p>';
+  h+='<div class="dfoot"><div></div><div class="dcol"><table><thead><tr><th>Le Directeur</th></tr></thead><tbody><tr><td class="c">'+esc(S.directeur||'')+'</td></tr><tr><td class="cachet">Cachet et signature</td></tr></tbody></table></div></div></div></div>';
+  document.getElementById('print').innerHTML=h;
+  document.getElementById('pagefmt').textContent='@page{size:A4 landscape;margin:8mm}';
+  setTimeout(()=>window.print(),60);
+}
+
 /* ----- Saisies en direct (directeur) ----- */
 async function chargerFeed(){
   if(!isDir()||!sb)return;
@@ -1212,7 +1355,7 @@ const PR={ch:null,etat:'',sig:'',depuis:0};
 function presenceActivite(){
   if(!S.profil)return '';
   if(S.tab==='saisie'||!isBureau()){const c=[S.classe,matName(S.matiere)].filter(Boolean).join(' · ');return (S.view==='edit'?'Saisit des notes':'Notes')+(c?' · '+c:'')}
-  return ({bulletins:'Bulletins',messages:'Messages aux parents',eleves:'Élèves',direct:'En direct',reglages:'Réglages'})[S.tab]||'';
+  return ({def:'Examens blancs du DEF',bulletins:'Bulletins',messages:'Messages aux parents',eleves:'Élèves',direct:'En direct',reglages:'Réglages'})[S.tab]||'';
 }
 function presenceSignal(){
   if(!PR.ch||PR.etat!=='SUBSCRIBED')return;
@@ -1262,7 +1405,7 @@ document.addEventListener('submit',async ev=>{
 document.addEventListener('click',async ev=>{
   const b=ev.target.closest('[data-act]');if(!b||b.tagName==='SELECT')return;
   const a=b.dataset.act;
-  if(a==='tab'){S.tab=b.dataset.k;S.view=null;if(S.tab==='bulletins'&&!S.bulClasse)S.bulClasse=S.classe||CLASSES[0];if(S.tab==='messages'){if(!S.msg.classe)S.msg.classe=S.classe||CLASSES[0];render(true);window.scrollTo(0,0);chargerMessages();return}render(true);if(S.tab==='direct')chargerFeed();if(S.tab==='bulletins')chargerBulletins();if(S.tab==='reglages'){S.reg.form=null;chargerReglages()}return}
+  if(a==='tab'){S.tab=b.dataset.k;S.view=null;if(S.tab==='def')chargerDef();if(S.tab==='bulletins'&&!S.bulClasse)S.bulClasse=S.classe||CLASSES[0];if(S.tab==='messages'){if(!S.msg.classe)S.msg.classe=S.classe||CLASSES[0];render(true);window.scrollTo(0,0);chargerMessages();return}render(true);if(S.tab==='direct')chargerFeed();if(S.tab==='bulletins')chargerBulletins();if(S.tab==='reglages'){S.reg.form=null;chargerReglages()}return}
   if(a==='sav-go'){faireSauvegarde();return}
   if(a==='sav-ouvrir'){S.tab='reglages';S.view=null;S.reg.sec='sav';S.reg.form=null;render(true);window.scrollTo(0,0);return}
   if(a==='rg-sec'){S.reg.sec=b.dataset.k;S.reg.err='';render(true);if(b.dataset.k==='ens'&&!S.reg.etat)chargerReglages();return}
@@ -1291,6 +1434,20 @@ document.addEventListener('click',async ev=>{
   if(a==='bulcl'){S.bulClasse=b.dataset.c;render(true);chargerBulletins();return}
   if(a==='bul'){S.bulId=b.dataset.id;S.view='bulletin';render(true);window.scrollTo(0,0);return}
   if(a==='bul-close'){S.view=null;render(true);return}
+  if(a==='def-new'){S.def.form={id:null,titre:'Examen blanc '+(S.def.exams.length+1),date:today()};S.def.err='';S.def.confirm=false;render(true);return}
+  if(a==='def-edit'){const x=defExam(S.def.examId);if(x){S.def.form={id:x.id,titre:x.titre,date:x.date||''};S.def.err='';S.def.confirm=false;render(true)}return}
+  if(a==='def-form-close'){S.def.form=null;S.def.err='';S.def.confirm=false;render(true);return}
+  if(a==='def-form-save'){enregistrerDefExam();return}
+  if(a==='def-del'){S.def.confirm=true;render(true);return}
+  if(a==='def-del-no'){S.def.confirm=false;render(true);return}
+  if(a==='def-del-yes'){supprimerDefExam();return}
+  if(a==='def-x'){S.def.examId=b.dataset.x;render(true);return}
+  if(a==='def-c'){S.def.classe=b.dataset.c;render(true);return}
+  if(a==='def-maj'){S.def.charge=false;render(true);chargerDef();return}
+  if(a==='def-print'){imprimerDef();return}
+  if(a==='def-saisir'){ouvrirDefSaisie(b.dataset.x,b.dataset.c,b.dataset.m);return}
+  if(a==='def-save'){enregistrerDefSaisie();return}
+  if(a==='def-close'){const t=S.def.saisie&&S.def.saisie.tab;S.view=null;S.def.saisie=null;S.def.err='';if(t)S.tab=t;render(true);return}
   if(a==='stats-open'){S.view='stats';if(!S.statsP)S.statsP=S.trim;render(true);window.scrollTo(0,0);chargerToutesNotes();return}
   if(a==='stats-close'){S.view=null;render(true);window.scrollTo(0,0);return}
   if(a==='stats-p'){const v=b.dataset.p;S.statsP=v==='an'?'an':+v;render(true);return}
@@ -1338,6 +1495,7 @@ document.addEventListener('change',ev=>{
   if(t.dataset.actChange==='classe'){S.classe=t.value;const m=S.matieres.filter(x=>(x.niveaux||[]).includes(S.classe[0]));if(!m.some(x=>x.id===S.matiere))S.matiere=m[0]?m[0].id:null;saveSel();render(true);chargerSelection();return}
   if(t.dataset.actChange==='matiere'){S.matiere=t.value;saveSel();render(true);chargerSelection();return}
   if(t.dataset.el&&S.elDraft){S.elDraft[t.dataset.el]=t.value;return}
+  if(t.dataset.dfx&&S.def.form){S.def.form[t.dataset.dfx]=t.value;return}
   if(t.dataset.actChange==='impclasse'&&S.imp){S.imp.classe=t.value;S.imp.lignes=null;S.err='';render(true);return}
   if(t.dataset.actChange==='feedclasse'){S.feedClasse=t.value;S.feedAt=null;render(true);chargerFeed();return}
   if(t.dataset.disp&&S.draft){S.draft.vals[t.dataset.disp].disp=t.checked;render(true);return}
@@ -1354,6 +1512,8 @@ document.addEventListener('input',ev=>{
   if(t.dataset.rgeco&&S.reg.eco){S.reg.eco[t.dataset.rgeco]=t.value;return}
   if(t.dataset.el&&S.elDraft){S.elDraft[t.dataset.el]=t.value;return}
   if(t.dataset.imp&&S.imp){S.imp.texte=t.value;return}
+  if(t.dataset.dfx&&S.def.form){S.def.form[t.dataset.dfx]=t.value;return}
+  if(t.dataset.dxn&&S.def.saisie){S.def.saisie.vals[t.dataset.dxn]=t.value;t.classList.toggle('bad',Number.isNaN(parseNote(t.value,20)));return}
   if(!S.draft)return;
   if(t.dataset.d){S.draft.ev[t.dataset.d]=t.value;return}
   const id=t.dataset.note||t.dataset.nc;if(!id)return;
@@ -1372,7 +1532,7 @@ async function chargerSelection(){
 /* ===== Démarrage et mises à jour ===== */
 async function rafraichir(){
   if(!sb||!S.uid)return;
-  try{await chargerTout();demarrerPresence();await synchroniser();if(S.tab==='messages')chargerMessages()}
+  try{await chargerTout();demarrerPresence();chargerDef();await synchroniser();if(S.tab==='messages')chargerMessages()}
   catch(e){
     if(e.code==='PROFIL'){lsDel(kCache());await sb.auth.signOut({scope:'local'}).catch(()=>{});S.uid=null;S.profil=null;S.charge=false;S.err='Ce compte n\'a pas accès aux bulletins (ou il a été désactivé). Voyez la direction.'}
     else if(estReseau(e))S.online=false;
