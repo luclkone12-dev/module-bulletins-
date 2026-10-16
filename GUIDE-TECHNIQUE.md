@@ -80,6 +80,7 @@ Le script est découpé en sections, chacune annoncée par un commentaire. Pour 
 | `Affichage` | En-tête, onglets, écran de connexion, onglet Notes |
 | `Saisie d'un devoir ou de la composition` | Écran de saisie des notes |
 | `Élèves` | Formulaire élève, liste collée (F ou G obligatoire) |
+| `Certificat de fréquentation` | Fiche à remplir (parents, naissance, n°) puis impression A4 |
 | `Bulletins` | Calcul des moyennes et des rangs, bulletin imprimé, contrôle des notes manquantes |
 | `Palmarès et statistiques` | Trois premiers, effectifs et taux par sexe, impression |
 | `Messages aux parents` | Textes WhatsApp, images, alertes de suivi, encouragements |
@@ -112,7 +113,7 @@ Toutes les tables sont dans le schéma `public` de Supabase.
 | `envois_devoirs`, `envois_bulletins`, `suivis` | Mémoire des messages WhatsApp déjà envoyés |
 | `journal` | Historique de toutes les modifications (qui, quand, avant, après). Ne peut être ni modifié ni effacé |
 | `verifs` | Prévue pour le code de vérification des bulletins (pas encore utilisée par la page) |
-| `certificats` | Prévue pour les certificats de fréquentation (pas encore utilisée par la page) |
+| `certificats` | Prévue pour les certificats de fréquentation (pas encore utilisée : la page imprime sans rien enregistrer) |
 
 ### Automatismes dans la base
 
@@ -210,7 +211,7 @@ Site de Supabase › projet BULLETINS-NEHEMIE › SQL Editor › coller le scrip
 - **La liste des personnes connectées** passe par un canal Supabase Realtime public. Il ne transporte que des identifiants internes et l'écran ouvert, jamais de nom ni de note.
 - **Protection contre les mots de passe piratés** : réservée à l'offre payante de Supabase, donc non activée.
 - **Offre gratuite Supabase** : 500 Mo de données et mise en pause après une semaine d'inactivité. Largement suffisant pour environ 200 élèves.
-- **Pas encore faits** : code de vérification sur les bulletins, certificats de fréquentation (tables prêtes), envoi WhatsApp automatique (aujourd'hui semi-automatique).
+- **Pas encore faits** : code de vérification sur les bulletins, envoi WhatsApp automatique (aujourd'hui semi-automatique).
 
 ## 11. Historique
 
@@ -223,3 +224,4 @@ Site de Supabase › projet BULLETINS-NEHEMIE › SQL Editor › coller le scrip
 | 15 oct. 2026 | Bulletins : palmarès et statistiques (trimestre ou année) |
 | 15 oct. 2026 | Onglet DEF : examens blancs des 9e |
 | 15 oct. 2026 | Tâche programmée de réveil des bases Supabase ; ce guide technique |
+| 16 oct. 2026 | Certificat de fréquentation scolaire : bouton « Certificat » dans la liste des élèves, noms du père et de la mère saisis à l'impression (non enregistrés), numéro proposé d'après le dernier imprimé sur le téléphone, en-tête Académie de Kalabancoro et CAP de Ouezzindougou |

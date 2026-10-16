@@ -1,6 +1,6 @@
 // Garde la page sur le téléphone pour qu'elle s'ouvre même sans réseau.
 // Les notes elles-mêmes ne passent jamais par ce cache : elles vont directement à la base.
-const CACHE = 'bulletins-v9';
+const CACHE = 'bulletins-v10';
 const FICHIERS = [
   './',
   './index.html',

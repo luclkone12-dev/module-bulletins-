@@ -110,6 +110,21 @@ td input[type=checkbox]{width:22px;height:22px}
 .doc .dcol{display:grid;gap:10px}
 .doc .sigcell{height:70px;vertical-align:top}
 .doc .cachet{height:95px;vertical-align:top;font-style:italic;font-size:.86em}
+/* Certificat de fréquentation */
+.doc.cert{font-size:15px;line-height:1.6;gap:14px;padding:28px 30px}
+.cert .ch{display:grid;grid-template-columns:1.25fr 1fr;gap:16px;align-items:start;text-align:center;font-size:.8em;line-height:1.35}
+.cert .ch b{display:block;letter-spacing:.02em}
+.cert .ch .tr{display:block;margin:2px 0}
+.cert .ch img{width:70px;height:70px;object-fit:contain;margin:6px auto}
+.cert .num{font-size:.9em}
+.cert .titre{text-align:center;margin:10px 0 6px}
+.cert .titre span{display:inline-block;border:2px solid #111;padding:8px 18px;font-weight:700;font-size:1.15em;letter-spacing:.05em}
+.cert p{margin:0;text-align:justify}
+.cert .id{display:grid;grid-template-columns:auto 1fr;gap:4px 14px;margin:0 0 0 20px}
+.cert .id b{font-weight:700}
+.cert .vide{color:#555}
+.cert .sig{justify-self:end;text-align:center;min-width:240px;display:grid;gap:4px;margin-top:10px}
+.cert .sig .zone{height:90px}
 #print{display:none}
 @media print{
   body{background:#fff}
@@ -124,6 +139,7 @@ td input[type=checkbox]{width:22px;height:22px}
   .feuille.deux .doc .dhead img{width:16mm;height:16mm}
   .feuille.deux .doc .sigcell{height:12mm}.feuille.deux .doc .cachet{height:18mm}
   .feuille.un .doc{min-width:0;padding:0;font-size:11pt}
+  .feuille.un .doc.cert{font-size:12.5pt;padding:6mm 8mm;gap:5mm}
   .doc,.doc th,.doc td{-webkit-print-color-adjust:exact;print-color-adjust:exact}
 }
 /* Messages aux parents */
@@ -280,7 +296,7 @@ async function synchroniser(){
 }
 
 /* ===== Affichage ===== */
-const enFormulaire=()=>S.view==='edit'||S.view==='def-saisie'||!!(S.def&&S.def.form)||S.view==='eleve'||S.view==='import'||!!(S.reg&&S.reg.form);
+const enFormulaire=()=>S.view==='edit'||S.view==='def-saisie'||!!(S.def&&S.def.form)||S.view==='eleve'||S.view==='cert'||S.view==='import'||!!(S.reg&&S.reg.form);
 function render(force){
   renderHead();
   const a=document.activeElement;
@@ -313,6 +329,7 @@ function viewMain(){
   if(S.view==='edit')return viewEdit();
   if(S.view==='def-saisie'&&S.def.saisie)return viewDefSaisie();
   if(S.tab==='def'&&isBureau())return viewDef();
+  if(S.view==='cert'&&isBureau()&&S.cert)return viewCert();
   if(S.view==='eleve'&&isBureau())return viewEleveForm();
   if(S.view==='import'&&isBureau())return viewImport();
   if(S.tab==='bulletins'&&isBureau())return S.view==='bulletin'?viewBulletin():S.view==='stats'?viewStats():viewBulletins();
@@ -451,7 +468,7 @@ function viewEleves(){
   return h;
 }
 const ligneEleve=(e,n)=>{const tel=telDigits(e.parent_tel),inf=[e.matricule?'Matricule '+esc(e.matricule):'',tel?'Parent '+telAff(tel):''].filter(Boolean).join(' · ');
-  return '<div class="li"><span class="no">'+n+'</span><span><b>'+esc(nomEleve(e))+'</b>'+(e.sexe?' <span class="badge">'+(e.sexe==='F'?'F':'G')+'</span>':'')+(tel?'':' <span class="badge warn">sans n° parent</span>')+(inf?'<br><span class="small muted">'+inf+'</span>':'')+'</span><button class="btn sm" data-act="el-edit" data-id="'+e.id+'"'+(S.online?'':' disabled')+'>Modifier</button></div>'};
+  return '<div class="li"><span class="no">'+n+'</span><span><b>'+esc(nomEleve(e))+'</b>'+(e.sexe?' <span class="badge">'+(e.sexe==='F'?'F':'G')+'</span>':'')+(tel?'':' <span class="badge warn">sans n° parent</span>')+(inf?'<br><span class="small muted">'+inf+'</span>':'')+'</span><span style="display:grid;gap:6px"><button class="btn sm" data-act="cert-open" data-id="'+e.id+'" aria-label="Certificat de fréquentation de '+esc(nomEleve(e))+'">Certificat</button><button class="btn sm" data-act="el-edit" data-id="'+e.id+'"'+(S.online?'':' disabled')+'>Modifier</button></span></div>'};
 async function ouvrirEleve(id){
   let e={nom:'',prenom:'',sexe:'',classe:S.elClasse||CLASSES[0],matricule:'',naissance_date:'',naissance_lieu:'',parent_nom:'',parent_tel:''};
   if(id){try{const r=chk(await sb.from('eleves').select('id,matricule,nom,prenom,sexe,classe,naissance_date,naissance_lieu,parent_nom,parent_tel').eq('id',id).maybeSingle());if(!r){toast('Cet élève n\'existe plus.');return}e=r}
@@ -469,8 +486,74 @@ function viewEleveForm(){
     '<div class="field"><label for="e-matricule">Matricule</label><input id="e-matricule" type="text" value="'+esc(e.matricule||'')+'" readonly placeholder="Attribué automatiquement" aria-describedby="e-mat-aide"><span id="e-mat-aide" class="small muted">'+(e.matricule?'Ne se modifie pas.':'Donné à l\'enregistrement, selon le sexe (F ou G).')+'</span></div>'+inp('naissance_date','Date de naissance','date')+inp('naissance_lieu','Lieu de naissance')+
     inp('parent_nom','Nom du parent')+inp('parent_tel','Téléphone WhatsApp du parent','tel',' inputmode="tel" placeholder="ex. 76 00 00 00"')+'</div>';
   h+=(S.err?'<p class="err">'+esc(S.err)+'</p>':'')+'<div class="row"><button class="btn primary" data-act="el-save"'+(S.busy?' disabled':'')+'>'+(S.busy?'Enregistrement…':'Enregistrer')+'</button><button class="btn" data-act="el-close">Annuler</button>';
+  if(!neuf)h+='<button class="btn" data-act="cert-open" data-id="'+e.id+'">Certificat de fréquentation</button>';
   if(!neuf)h+=S.confirm==='el-del'?'<div class="confirm"><span>Supprimer <b>'+esc(nomEleve(e))+'</b> ? <b>Toutes ses notes seront effacées.</b> Pour un élève qui change de classe, changez plutôt la classe ci-dessus.</span><button class="btn sm danger" data-act="el-del-yes">Oui, supprimer</button><button class="btn sm" data-act="el-del-no">Non</button></div>':'<button class="btn danger" data-act="el-del">Supprimer</button>';
   return h+'</div></div>';
+}
+/* ----- Certificat de fréquentation scolaire (directeur et secrétariat) -----
+   Les noms du père et de la mère ne sont pas sur la fiche de l'élève : on les saisit au moment d'imprimer,
+   ils ne sont pas enregistrés. Le numéro proposé suit le dernier numéro imprimé sur ce téléphone. */
+const CERT_ACADEMIE='Kalabancoro',CERT_CAP='Ouezzindougou',CERT_LIEU='Katibougou';
+const MOIS_CERT=['janvier','février','mars','avril','mai','juin','juillet','août','septembre','octobre','novembre','décembre'];
+const dateCert=d=>d&&/^\d{4}-\d{2}-\d{2}/.test(d)?(+d.slice(8,10)===1?'1er':String(+d.slice(8,10)))+' '+MOIS_CERT[+d.slice(5,7)-1]+' '+d.slice(0,4):'';
+const aujourdhui=()=>{const n=new Date();return n.getFullYear()+'-'+String(n.getMonth()+1).padStart(2,'0')+'-'+String(n.getDate()).padStart(2,'0')};
+async function ouvrirCert(id){
+  let e=S.eleves.find(x=>x.id===id);if(!e){toast('Cet élève n\'existe plus.');return}
+  e={...e};
+  if(S.online){try{const r=chk(await sb.from('eleves').select('id,matricule,nom,prenom,sexe,classe,naissance_date,naissance_lieu,parent_nom').eq('id',id).maybeSingle());if(r)e={...e,...r}}catch(_){}}
+  const an=String(S.annee),dern=lsGet('bn-cert-num');
+  const num=dern&&dern.annee===an&&Number(dern.n)>=0?String(Number(dern.n)+1).padStart(4,'0'):'';
+  S.cert={e,numero:num,naissance_date:e.naissance_date||'',naissance_lieu:e.naissance_lieu||'',pere:'',mere:'',date:aujourdhui(),err:'',retour:S.view};
+  S.view='cert';render(true);window.scrollTo(0,0);
+}
+function viewCert(){
+  const C=S.cert,e=C.e,f=e.sexe==='F';
+  const inp=(k,l,t,extra)=>'<div class="field"><label for="c-'+k+'">'+l+'</label><input id="c-'+k+'" data-cert="'+k+'" type="'+(t||'text')+'" value="'+esc(C[k])+'"'+(extra||'')+'></div>';
+  let h='<button class="btn ghost" data-act="cert-close">← Retour</button><div class="card"><h2>Certificat de fréquentation</h2>'+
+    '<p><b>'+esc(nomEleve(e))+'</b> · '+esc(e.classe||'sans classe')+(e.matricule?' · '+esc(e.matricule):'')+'</p>'+
+    (e.parent_nom?'<p class="small muted">Parent inscrit sur la fiche : '+esc(e.parent_nom)+'</p>':'')+
+    '<div class="form">'+inp('pere','Nom du père',null,' autocapitalize="words" autocomplete="off"')+inp('mere','Nom de la mère',null,' autocapitalize="words" autocomplete="off"')+
+    inp('naissance_date',(f?'Née':'Né(e)')+' le','date')+inp('naissance_lieu','Lieu de naissance')+
+    inp('numero','N° du certificat',null,' inputmode="numeric" placeholder="ex. 0001"')+inp('date','Date du certificat','date')+'</div>'+
+    '<p class="small muted">Ces informations servent seulement à ce certificat : elles ne sont pas enregistrées. Une case vide laisse une ligne pointillée à remplir à la main.</p>'+
+    (C.err?'<p class="err" role="alert">'+esc(C.err)+'</p>':'')+
+    '<div class="row"><button class="btn primary" data-act="cert-print">Imprimer</button><button class="btn" data-act="cert-close">Annuler</button></div></div>';
+  return h;
+}
+function docCertificat(C){
+  const e=C.e,f=e.sexe==='F',g=e.sexe==='M',pt='<span class="vide">……………………………………</span>',v=x=>x?esc(x):pt;
+  const accord=(m,fe,x)=>f?fe:g?m:x;
+  const nom=(e.nom||'').toUpperCase(),dir=String(S.directeur||'').trim(),an=String(S.annee).replace(/\s*-\s*/,'-');
+  const num=String(C.numero||'').trim();
+  let h='<div class="doc cert"><div class="ch"><div>'+
+    '<b>MINISTÈRE DE L\'ÉDUCATION NATIONALE</b><span class="tr">———</span>'+
+    '<b>ACADÉMIE D\'ENSEIGNEMENT DE '+esc(CERT_ACADEMIE.toUpperCase())+'</b><span class="tr">———</span>'+
+    '<b>CENTRE D\'ANIMATION PÉDAGOGIQUE DE '+esc(CERT_CAP.toUpperCase())+'</b><span class="tr">———</span>'+
+    (S.logo?'<img src="'+esc(S.logo)+'" alt="">':'')+
+    '<b>'+esc(String(S.ecole).toUpperCase())+'</b>Second cycle</div>'+
+    '<div><b>RÉPUBLIQUE DU MALI</b>Un Peuple – Un But – Une Foi</div></div>'+
+    '<p class="num">N° '+(num?esc(num):'…………')+' / ÉN-K / '+esc(an)+'</p>'+
+    '<div class="titre"><span>CERTIFICAT DE FRÉQUENTATION SCOLAIRE</span></div>'+
+    '<p>Je soussigné, '+(dir?'<b>'+esc(dir)+'</b>':pt)+', Directeur de l\''+esc(S.ecole)+' (second cycle), certifie que l\'élève :</p>'+
+    '<div class="id"><span>Prénom(s) et nom :</span><b>'+esc(e.prenom||'')+' '+esc(nom)+'</b>'+
+    '<span>'+accord('Né','Née','Né(e)')+' le :</span><span>'+(C.naissance_date?'<b>'+dateCert(C.naissance_date)+'</b>':pt)+' à '+(C.naissance_lieu?'<b>'+esc(C.naissance_lieu)+'</b>':pt)+'</span>'+
+    '<span>'+accord('Fils','Fille','Fils / fille')+' de :</span>'+(C.pere?'<b>'+esc(C.pere)+'</b>':'<span>'+pt+'</span>')+
+    '<span>et de :</span>'+(C.mere?'<b>'+esc(C.mere)+'</b>':'<span>'+pt+'</span>')+
+    '<span>Matricule :</span>'+(e.matricule?'<b>'+esc(e.matricule)+'</b>':'<span>'+pt+'</span>')+'</div>'+
+    '<p>est régulièrement '+accord('inscrit','inscrite','inscrit(e)')+' et fréquente assidûment notre établissement en classe de <b>'+v(e.classe)+'</b> au titre de l\'année scolaire <b>'+esc(an)+'</b>.</p>'+
+    '<p>En foi de quoi, le présent certificat lui est délivré pour servir et valoir ce que de droit.</p>'+
+    '<div class="sig"><span>Fait à '+esc(CERT_LIEU)+', le '+(C.date?dateCert(C.date):'……………………')+'</span><b>Le Directeur</b><div class="zone"></div><b>'+(dir?esc(dir):'')+'</b></div></div>';
+  return h;
+}
+function imprimerCert(){
+  const C=S.cert;if(!C)return;
+  C.pere=String(C.pere).trim().replace(/\s+/g,' ');C.mere=String(C.mere).trim().replace(/\s+/g,' ');
+  if(!C.pere&&!C.mere){C.err='Indiquez au moins le nom du père ou celui de la mère.';render(true);const i=document.getElementById('c-pere');if(i)i.focus();return}
+  C.err='';render(true);
+  const n=parseInt(String(C.numero).replace(/\D/g,''),10);if(n>=0)lsSet('bn-cert-num',{annee:String(S.annee),n});
+  document.getElementById('print').innerHTML='<div class="feuille un">'+docCertificat(C)+'</div>';
+  document.getElementById('pagefmt').textContent='@page{size:A4 portrait;margin:12mm}';
+  setTimeout(()=>window.print(),60);
 }
 async function enregistrerEleve(force){
   const e=S.elDraft,nom=String(e.nom).trim().replace(/\s+/g,' '),prenom=String(e.prenom).trim().replace(/\s+/g,' ');
@@ -1467,6 +1550,9 @@ document.addEventListener('click',async ev=>{
   if(a==='del-yes')return supprimer();
   if(a==='go-eleves'){S.tab='eleves';S.elClasse=b.dataset.c;S.view=null;render(true);window.scrollTo(0,0);return}
   if(a==='elcl'){S.elClasse=b.dataset.c;render(true);return}
+  if(a==='cert-open')return ouvrirCert(b.dataset.id);
+  if(a==='cert-close'){S.view=S.cert?S.cert.retour:null;S.cert=null;render(true);window.scrollTo(0,0);return}
+  if(a==='cert-print'){imprimerCert();return}
   if(a==='el-new')return ouvrirEleve(null);
   if(a==='el-edit')return ouvrirEleve(b.dataset.id);
   if(a==='el-close'){S.view=S.elDraft&&S.tab==='messages'?S.vueAvant||null:null;S.elDraft=null;S.imp=null;S.confirm=null;S.err='';render(true);return}
@@ -1494,6 +1580,7 @@ document.addEventListener('change',ev=>{
   if(t.dataset.rglogo&&t.files&&t.files[0]){lireLogo(t.files[0]);return}
   if(t.dataset.actChange==='classe'){S.classe=t.value;const m=S.matieres.filter(x=>(x.niveaux||[]).includes(S.classe[0]));if(!m.some(x=>x.id===S.matiere))S.matiere=m[0]?m[0].id:null;saveSel();render(true);chargerSelection();return}
   if(t.dataset.actChange==='matiere'){S.matiere=t.value;saveSel();render(true);chargerSelection();return}
+  if(t.dataset.cert&&S.cert){S.cert[t.dataset.cert]=t.value;if(S.cert.err)S.cert.err='';return}
   if(t.dataset.el&&S.elDraft){S.elDraft[t.dataset.el]=t.value;return}
   if(t.dataset.dfx&&S.def.form){S.def.form[t.dataset.dfx]=t.value;return}
   if(t.dataset.actChange==='impclasse'&&S.imp){S.imp.classe=t.value;S.imp.lignes=null;S.err='';render(true);return}
@@ -1510,6 +1597,7 @@ document.addEventListener('input',ev=>{
   const t=ev.target;
   if(S.reg.form&&(t.dataset.rg||t.dataset.rgniv||t.dataset.rgcoef)){regChamp(t);return}
   if(t.dataset.rgeco&&S.reg.eco){S.reg.eco[t.dataset.rgeco]=t.value;return}
+  if(t.dataset.cert&&S.cert){S.cert[t.dataset.cert]=t.value;if(S.cert.err)S.cert.err='';return}
   if(t.dataset.el&&S.elDraft){S.elDraft[t.dataset.el]=t.value;return}
   if(t.dataset.imp&&S.imp){S.imp.texte=t.value;return}
   if(t.dataset.dfx&&S.def.form){S.def.form[t.dataset.dfx]=t.value;return}
