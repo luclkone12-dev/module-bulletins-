@@ -7,7 +7,7 @@
 <title>Bulletins Néhémie – 1er cycle</title>
 <style>
 :root{
-  --bleu:#1f4e79; --bleu2:#2e6da4; --bleu-clair:#e8f0f8; --vert:#2e7d32; --rouge:#c62828; --orange:#e67e22;
+  --bleu:#132f63; --bleu2:#1b5196; --bleu-clair:#eaf0f8; --vert:#2e7d32; --rouge:#c62828; --accent:#d0101f; --accent-fonce:#a30c18; --orange:#e67e22;
   --gris:#f4f6f8; --bord:#cfd8e3; --texte:#1d2733; --doux:#5b6b7c;
 }
 *{box-sizing:border-box}
@@ -15,16 +15,20 @@ html,body{margin:0;height:100%}
 body{font-family:"Segoe UI",Arial,sans-serif;font-size:14px;color:var(--texte);background:var(--gris)}
 button,input,select,textarea{font-family:inherit;font-size:14px}
 #app{display:flex;height:100vh}
-nav{width:230px;background:var(--bleu);color:#fff;display:flex;flex-direction:column;flex-shrink:0;overflow-y:auto}
-nav .marque{padding:16px 16px 12px;border-bottom:1px solid rgba(255,255,255,.15)}
+nav{width:230px;background:linear-gradient(180deg,#132f63 0%,#0e2550 100%);color:#fff;display:flex;flex-direction:column;flex-shrink:0;overflow-y:auto}
+nav .marque{padding:14px 14px 12px;border-bottom:3px solid var(--accent)}
+nav .marque .id{display:flex;align-items:center;gap:10px}
+nav .marque .tuile{background:#fff;border-radius:8px;padding:3px;width:46px;height:46px;display:flex;align-items:center;justify-content:center;flex:none}
+nav .marque .tuile img{max-width:40px;max-height:40px}
 nav .marque b{display:block;font-size:16px}
 nav .marque span{font-size:12px;opacity:.8}
 nav a{display:block;padding:11px 18px;color:#fff;text-decoration:none;cursor:pointer;border-left:4px solid transparent}
 nav a:hover{background:rgba(255,255,255,.08)}
-nav a.actif{background:rgba(255,255,255,.15);border-left-color:#ffd54f;font-weight:600}
+nav a.actif{background:rgba(255,255,255,.13);border-left-color:var(--accent);font-weight:600}
 nav .bas{margin-top:auto;padding:12px 16px;font-size:12px;opacity:.75}
 main{flex:1;overflow:auto;padding:22px 28px}
-h1{font-size:22px;margin:0 0 4px;color:var(--bleu)}
+h1{font-size:22px;margin:0 0 6px;color:var(--bleu)}
+h1::after{content:"";display:block;width:44px;height:3px;background:var(--accent);border-radius:2px;margin-top:6px}
 h2{font-size:17px;margin:22px 0 10px;color:var(--bleu)}
 .sous{color:var(--doux);margin:0 0 18px}
 .carte{background:#fff;border:1px solid var(--bord);border-radius:8px;padding:16px 18px;margin-bottom:16px}
@@ -35,13 +39,15 @@ textarea{width:100%;min-height:140px}
 .btn{background:var(--bleu2);color:#fff;border:none;border-radius:5px;padding:8px 14px;cursor:pointer;font-weight:600}
 .btn:hover{filter:brightness(1.08)}
 .btn.sec{background:#fff;color:var(--bleu2);border:1px solid var(--bleu2)}
-.btn.rouge{background:var(--rouge)}
+.btn.rouge{background:#fff;color:var(--rouge);border:1px solid var(--rouge)}
+.btn.accent{background:var(--accent)}
+.btn.accent:hover{background:var(--accent-fonce);filter:none}
 .btn.vert{background:var(--vert)}
 .btn.petit{padding:4px 9px;font-size:12px}
 .btn:disabled{opacity:.5;cursor:default}
 table.t{border-collapse:collapse;width:100%;background:#fff}
 table.t th,table.t td{border:1px solid var(--bord);padding:6px 8px;text-align:left}
-table.t th{background:var(--bleu-clair);font-weight:600;font-size:13px}
+table.t th{background:var(--bleu-clair);font-weight:600;font-size:13px;color:var(--bleu)}
 table.t td.c,table.t th.c{text-align:center}
 .stats{display:grid;grid-template-columns:repeat(auto-fill,minmax(170px,1fr));gap:12px}
 .stat{background:#fff;border:1px solid var(--bord);border-radius:8px;padding:12px 14px}
@@ -52,6 +58,20 @@ table.t td.c,table.t th.c{text-align:center}
 .alerte.rouge{background:#ffebee;border:1px solid #ef9a9a}
 .alerte.verte{background:#e8f5e9;border:1px solid #a5d6a7}
 .alerte.bleue{background:var(--bleu-clair);border:1px solid #b6cde3}
+.afaire{border-top:3px solid var(--bleu)}
+.afaire h2{margin:0 0 4px}
+.afaire .pt{display:flex;gap:10px;align-items:baseline;padding:9px 0;border-top:1px solid #edf1f5;line-height:1.5}
+.afaire .pt:first-of-type{border-top:none}
+.afaire .pt::before{content:"";width:10px;height:10px;border-radius:50%;flex:none;transform:translateY(1px)}
+.afaire .pt.rouge::before{background:var(--accent)}
+.afaire .pt.jaune::before{background:#e6a100}
+.afaire .pt.bleue::before{background:var(--bleu2)}
+.afaire .pt.verte::before{background:var(--vert)}
+.taille{display:flex;gap:4px;margin-top:8px;align-items:center}
+.taille button{background:transparent;border:1px solid rgba(255,255,255,.4);color:#fff;border-radius:4px;padding:2px 7px;cursor:pointer;font-weight:700}
+.taille button.on{background:#fff;color:var(--bleu)}
+#app.grand{zoom:1.15}
+#app.tgrand{zoom:1.3}
 .muted{color:var(--doux);font-size:12px}
 /* Grille de saisie */
 .grille-wrap{overflow:auto;max-height:calc(100vh - 230px);border:1px solid var(--bord);border-radius:6px;background:#fff}
@@ -84,6 +104,8 @@ table.grille td.moy{font-weight:600;padding:0 8px;background:#fafbfc}
   nav .marque{display:flex;align-items:center;justify-content:space-between;padding:10px 14px}
   #menu-btn{display:block;background:transparent;border:1px solid rgba(255,255,255,.45);color:#fff;border-radius:6px;padding:4px 12px;font-size:20px;cursor:pointer}
   nav a,nav .bas{display:none}
+  nav.ouvert .bas{display:block}
+  nav .marque .tuile{width:38px;height:38px}nav .marque .tuile img{max-width:32px;max-height:32px}
   nav.ouvert{max-height:100vh;overflow-y:auto}
   nav.ouvert a{display:block;padding:12px 18px}
   main{padding:14px 12px;overflow:visible}
@@ -191,7 +213,7 @@ details.carte summary{outline:none}
 </div>
 <div id="app" style="display:none">
   <nav>
-    <div class="marque"><div><b>Bulletins Néhémie</b><span id="nav-sous">Premier cycle</span></div><button id="menu-btn" type="button" aria-label="Menu">☰</button></div>
+    <div class="marque"><div class="id"><span class="tuile"><img id="nav-logo" alt=""></span><div><b>Bulletins Néhémie</b><span id="nav-sous">Premier cycle</span></div></div><button id="menu-btn" type="button" aria-label="Menu">☰</button></div>
     <a data-p="accueil">Tableau de bord</a>
     <a data-p="eleves">Élèves</a>
     <a data-p="saisie">Saisie des notes</a>
@@ -418,14 +440,20 @@ function aller(p){
   const f=PAGES[p];document.getElementById("contenu").innerHTML="";f(document.getElementById("contenu"));
   majNav();
 }
+function lireTaille(){try{return localStorage.getItem("nehemie_1er_taille")||""}catch(e){return""}}
+function choisirTaille(k){try{localStorage.setItem("nehemie_1er_taille",k)}catch(e){}appliquerTaille();majNav()}
+function appliquerTaille(){const a=document.getElementById("app");a.classList.remove("grand","tgrand");const k=lireTaille();if(k)a.classList.add(k)}
 function majNav(){
+  const nl=document.getElementById("nav-logo");if(DB.ecole.logo){nl.src=DB.ecole.logo;nl.parentNode.style.display=""}else nl.parentNode.style.display="none";
   document.getElementById("nav-sous").textContent="Premier cycle · "+DB.ecole.annee+(LECTURE_SEULE?" · consultation":"");
   const d=DB.derniereSauvegarde?new Date(DB.derniereSauvegarde).toLocaleDateString("fr-FR"):"jamais";
   let a="";
   if(AUTO.etat==="ok")a=`<br><span style="color:#a5d6a7">● Sauvegarde automatique active</span>`;
   else if(AUTO.etat==="permission")a=`<br><span style="color:#ffd54f;cursor:pointer;text-decoration:underline" onclick="reactiverAuto()">● Réactiver la sauvegarde automatique</span>`;
   else if(AUTO.etat==="aucun")a=`<br><span style="color:#ffcc80;cursor:pointer;text-decoration:underline" onclick="aller('sauvegarde')">● Sauvegarde automatique non activée</span>`;
-  document.getElementById("nav-bas").innerHTML="Dernière sauvegarde : "+d+"<br>Données sur cet ordinateur"+a;
+  const tl=lireTaille();
+  const tail=`<div class="taille">Texte : ${[["","A"],["grand","A+"],["tgrand","A++"]].map(([k,l])=>`<button type="button" class="${tl===k?"on":""}" onclick="choisirTaille('${k}')">${l}</button>`).join("")}</div>`;
+  document.getElementById("nav-bas").innerHTML=(LECTURE_SEULE?"":"Dernière sauvegarde : "+d+"<br>Données sur cet ordinateur"+a)+tail;
 }
 function exigerCode(toujours,suite){if(!DB.ecole.code)return suite();if(!toujours&&codeOk)return suite();demanderCode(suite)}
 function demanderCode(suite){
@@ -472,7 +500,7 @@ const PAGES={};
 PAGES.accueil=el=>{
   const nbE=DB.eleves.length,g=DB.eleves.filter(e=>e.sexe==="G").length,f=DB.eleves.filter(e=>e.sexe==="F").length;
   const m=etat.mois||moisCourant();
-  let alertes="";
+  let alertes="",infoTel="";
   const jours=DB.derniereSauvegarde?(Date.now()-new Date(DB.derniereSauvegarde))/864e5:null;
   if(!LECTURE_SEULE&&AUTO.etat==="permission")alertes+=`<div class="alerte jaune"><b>Sauvegarde automatique en pause.</b> Le navigateur demande votre accord pour écrire dans le dossier de sauvegarde. <button class="btn petit" onclick="reactiverAuto()">Réactiver</button></div>`;
   if(!LECTURE_SEULE&&!DB.ecole.code)alertes+=`<div class="alerte jaune"><b>Aucun code directeur.</b> Créez-en un dans les Réglages pour protéger les matières, les réglages et le passage de fin d'année. <button class="btn petit sec" onclick="aller('reglages')">Créer le code</button></div>`;
@@ -491,7 +519,11 @@ PAGES.accueil=el=>{
     <td><button class="btn petit sec" onclick="etat.classe='${c.id}';etat.mois=${m};aller('saisie')">${LECTURE_SEULE||estClos(c.id,m)?"Voir":"Saisir"}</button></td></tr>`;
   }).join("");
   if(window.innerWidth<=820){const dd=DB.derniereSauvegarde?new Date(DB.derniereSauvegarde).toLocaleString("fr-FR",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"}):null;
-    alertes=`<div class="alerte bleue">${dd?"Données de la sauvegarde du <b>"+dd+"</b>.":"Aucune donnée importée pour l'instant."} <button class="btn petit" onclick="aller('sauvegarde')">${dd?"Mettre à jour":"Importer une sauvegarde"}</button></div>`+alertes;}
+    infoTel=`<div class="alerte bleue">${dd?"Données de la sauvegarde du <b>"+dd+"</b>.":"Aucune donnée importée pour l'instant."} <button class="btn petit" onclick="aller('sauvegarde')">${dd?"Mettre à jour":"Importer une sauvegarde"}</button></div>`;}
+  const prio={rouge:1,jaune:2,bleue:3,verte:4};const pts=[];
+  alertes.replace(/<div class="alerte (\w+)">([\s\S]*?)<\/div>/g,(x,c,h)=>{pts.push([c,h]);return""});
+  pts.sort((a,b)=>(prio[a[0]]||9)-(prio[b[0]]||9));
+  alertes=infoTel+(pts.length?`<div class="carte afaire"><h2>Points d'attention</h2>${pts.map(([c,h])=>`<div class="pt ${c}"><div>${h}</div></div>`).join("")}</div>`:"");
   el.innerHTML=`<h1>${esc(DB.ecole.nom)}</h1><p class="sous">${esc(DB.ecole.cycle)} · Année scolaire ${esc(DB.ecole.annee)} · Directeur : ${esc(DB.ecole.directeur)}</p>
   ${alertes}
   <div class="stats" style="margin-bottom:16px">
@@ -679,7 +711,7 @@ function barreCloture(c,m){
   if(LECTURE_SEULE)return `<div class="alerte bleue">Consultation : les notes ne peuvent pas être modifiées sur ce téléphone.</div>`;
   const k=DB.clotures[c.id+"|"+m];
   if(k)return `<div class="alerte verte">🔒 <b>Composition clôturée</b> le ${new Date(k.d).toLocaleDateString("fr-FR")} : les notes ne peuvent plus être modifiées. <button class="btn petit sec" id="s-rouv">Rouvrir (code du directeur)</button></div>`;
-  return `<div class="ligne" style="justify-content:flex-end;margin:-6px 0 10px"><span class="muted">Après l'impression des bulletins :</span><button class="btn petit sec" id="s-clo">🔒 Clôturer cette composition</button></div>`;
+  return `<div class="ligne" style="justify-content:flex-end;margin:-6px 0 10px"><span class="muted">Après l'impression des bulletins :</span><button class="btn petit accent" id="s-clo">🔒 Clôturer cette composition</button></div>`;
 }
 /* ---------- Bulletins ---------- */
 PAGES.bulletins=el=>{
@@ -689,7 +721,7 @@ PAGES.bulletins=el=>{
    <label>Bulletin ${selPeriode("b-pe",etat.per||"t1",false,true)}</label>
    <label>Élève<select id="b-el"></select></label>
   </div><div class="ligne" style="margin-top:14px">
-   <button class="btn" id="b-im">Imprimer les bulletins</button>
+   <button class="btn accent" id="b-im">Imprimer les bulletins</button>
    <button class="btn sec" id="b-ap">Aperçu à l'écran</button>
    <button class="btn sec" id="b-rc">Imprimer le tableau récapitulatif</button>
   </div><p class="muted" style="margin-top:10px">Dans la fenêtre d'impression, choisissez le format A4, l'orientation « Portrait » et l'échelle « Par défaut » (ou 100 %). Décochez « En-têtes et pieds de page ».</p></div>
@@ -915,7 +947,7 @@ function htmlPalmares(per,pourImpression){
 }
 PAGES.palmares=el=>{
   el.innerHTML=`<h1>Palmarès et statistiques</h1><p class="sous">Les élèves ayant la moyenne sont ceux qui obtiennent au moins ${DB.ecole.seuil}/${DB.ecole.bareme}.</p>
-  <div class="carte ligne"><label>Période ${selPeriode("p-pe",etat.per||"t1",true)}</label><button class="btn" id="p-im" style="margin-left:auto">Imprimer</button></div><div id="p-vu" class="carte"></div>`;
+  <div class="carte ligne"><label>Période ${selPeriode("p-pe",etat.per||"t1",true)}</label><button class="btn accent" id="p-im" style="margin-left:auto">Imprimer</button></div><div id="p-vu" class="carte"></div>`;
   const maj=()=>{etat.per=el.querySelector("#p-pe").value;el.querySelector("#p-vu").innerHTML=htmlPalmares(lirePeriode(etat.per),false)};
   el.querySelector("#p-pe").onchange=maj;maj();
   el.querySelector("#p-im").onclick=()=>imprimer(htmlPalmares(lirePeriode(el.querySelector("#p-pe").value),true));
@@ -927,7 +959,7 @@ PAGES.listes=el=>{
   <div class="carte"><div class="ligne"><label>Classe ${selClasses("l-cl",etat.classe,true)}</label>
   <label>Modèle<select id="l-mo"><option value="mat">Une colonne par matière</option><option value="une">Une seule matière (à écrire)</option><option value="appel">Liste simple (appel)</option></select></label>
   <label>Mois<select id="l-mm"><option value="">(à écrire à la main)</option>${moisActifs().map(x=>`<option value="${x.m}">${MOIS_NOMS[x.m]}</option>`).join("")}</select></label>
-  <button class="btn" id="l-im" style="margin-left:auto">Imprimer</button></div>
+  <button class="btn accent" id="l-im" style="margin-left:auto">Imprimer</button></div>
   <p class="muted">Si la classe n'a pas encore d'élèves, la liste sort avec des lignes vides.</p></div>`;
   el.querySelector("#l-im").onclick=()=>{
     const v=el.querySelector("#l-cl").value,mo=el.querySelector("#l-mo").value,mm=el.querySelector("#l-mm").value;
@@ -1175,7 +1207,7 @@ function htmlDiff(c,per,L){
 }
 PAGES.difficulte=el=>{
   el.innerHTML=`<h1>Élèves en difficulté</h1><p class="sous">Élèves dont la moyenne est inférieure à ${DB.ecole.seuil}/${DB.ecole.bareme}, avec leurs matières les plus faibles.</p>
-  <div class="carte ligne"><label>Période ${selPeriode("d-pe",etat.per||"m"+moisCourant(),true)}</label><label>Classe ${selClasses("d-cl","*",true)}</label><button class="btn" id="d-im" style="margin-left:auto">Imprimer les listes pour les maîtres</button></div><div id="d-vu"></div>`;
+  <div class="carte ligne"><label>Période ${selPeriode("d-pe",etat.per||"m"+moisCourant(),true)}</label><label>Classe ${selClasses("d-cl","*",true)}</label><button class="btn accent" id="d-im" style="margin-left:auto">Imprimer les listes pour les maîtres</button></div><div id="d-vu"></div>`;
   const cids=()=>{const per=lirePeriode(el.querySelector("#d-pe").value);return (el.querySelector("#d-cl").value==="*"?DB.classes.map(c=>c.id):[el.querySelector("#d-cl").value]).filter(id=>per.type!=="trim"||aTrim(classe(id)))};
   const maj=()=>{
     etat.per=el.querySelector("#d-pe").value;const per=lirePeriode(etat.per);let tot=0;
@@ -1215,7 +1247,7 @@ function ficheCertificat(e){
   <div class="ligne" style="margin-top:8px"><label>Date du certificat<input type="date" id="cf-da" value="${auj}"></label></div>
   <p class="muted">Les informations saisies ici sont gardées pour la prochaine fois.</p>
   <p id="cf-err" style="color:var(--rouge)"></p>
-  <div class="ligne" style="justify-content:flex-end"><button class="btn sec" data-x>Annuler</button><button class="btn" id="cf-ok">Imprimer le certificat</button></div>`,
+  <div class="ligne" style="justify-content:flex-end"><button class="btn sec" data-x>Annuler</button><button class="btn accent" id="cf-ok">Imprimer le certificat</button></div>`,
   d=>{
     setTimeout(()=>d.querySelector("#cf-pe").focus(),50);
     d.querySelector("#cf-ok").onclick=()=>{
@@ -1367,7 +1399,7 @@ if(LECTURE_SEULE){["saisie","matieres","reglages","finannee","certificats","jour
 if(location.protocol==="https:"){
   try{const l=document.createElement("link");l.rel="manifest";l.href="manifest.json";document.head.appendChild(l);
   if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});}catch(e){}
-}document.getElementById("app").style.display="";
+}document.getElementById("app").style.display="";appliquerTaille();
 charger();
 document.querySelectorAll("nav a").forEach(a=>a.onclick=()=>{document.querySelector("nav").classList.remove("ouvert");aller(a.dataset.p);window.scrollTo(0,0)});
 document.getElementById("menu-btn").onclick=()=>document.querySelector("nav").classList.toggle("ouvert");
