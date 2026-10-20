@@ -98,6 +98,8 @@ table.grille td.moy{font-weight:600;padding:0 8px;background:#fafbfc}
   .ligne label select,.ligne label input{width:100%}
   .dialogue{width:96%;padding:14px}
   #b-vu .carte{padding:6px}
+  table.grille td.nom,table.grille th.nom{min-width:120px;max-width:140px;white-space:normal;font-size:13px}
+  table.grille input{width:46px}
 }
 
 /* ===================== IMPRESSION ===================== */
@@ -218,6 +220,7 @@ details.carte summary{outline:none}
    Toutes les données restent sur cet ordinateur.
    ========================================================= */
 const CLE = "nehemie_bulletins_1er_cycle_v1";
+const LECTURE_SEULE=true; /* true dans la version téléphone */
 const MOIS_NOMS = {10:"Octobre",11:"Novembre",12:"Décembre",1:"Janvier",2:"Février",3:"Mars",4:"Avril",5:"Mai",6:"Juin",7:"Juillet",9:"Septembre"};
 const ORDRE_MOIS = [9,10,11,12,1,2,3,4,5,6,7];
 const MAITRES = {};
@@ -269,6 +272,7 @@ function migrer(){
   if(!DB.decisions)DB.decisions={};
   if(!DB.seqCert)DB.seqCert=1;
   if(!DB.certificats)DB.certificats=[];
+  if(!DB.clotures)DB.clotures={};
   if(!DB.ecole.titre)DB.ecole.titre="Directeur";
   if(!DB.version||DB.version<2){DB.classes.forEach(c=>{if(!c.maitre)c.maitre=MAITRES[c.id]||""});DB.version=2;enregistrer()}
   if(DB.version<3){
@@ -304,7 +308,9 @@ function matricule(e){const n=String(e.num).padStart(4,"0");return DB.ecole.pref
 function moisActifs(){return DB.mois.filter(x=>x.t>0).sort((a,b)=>ORDRE_MOIS.indexOf(a.m)-ORDRE_MOIS.indexOf(b.m))}
 function moisDuTrim(t){return moisActifs().filter(x=>x.t===t).map(x=>x.m)}
 function note(cid,m,eid,matId){const a=DB.notes[cid];if(!a||!a[m]||!a[m][eid])return undefined;return a[m][eid][matId]}
+function estClos(cid,m){return !!(DB.clotures&&DB.clotures[cid+"|"+m])}
 function setNote(cid,m,eid,matId,v){
+  if(LECTURE_SEULE||estClos(cid,m))return;
   DB.notes[cid]=DB.notes[cid]||{};DB.notes[cid][m]=DB.notes[cid][m]||{};DB.notes[cid][m][eid]=DB.notes[cid][m][eid]||{};
   const avant=DB.notes[cid][m][eid][matId];
   if(v===undefined)delete DB.notes[cid][m][eid][matId]; else DB.notes[cid][m][eid][matId]=v;
@@ -413,7 +419,7 @@ function aller(p){
   majNav();
 }
 function majNav(){
-  document.getElementById("nav-sous").textContent="Premier cycle · "+DB.ecole.annee;
+  document.getElementById("nav-sous").textContent="Premier cycle · "+DB.ecole.annee+(LECTURE_SEULE?" · consultation":"");
   const d=DB.derniereSauvegarde?new Date(DB.derniereSauvegarde).toLocaleDateString("fr-FR"):"jamais";
   let a="";
   if(AUTO.etat==="ok")a=`<br><span style="color:#a5d6a7">● Sauvegarde automatique active</span>`;
@@ -421,6 +427,7 @@ function majNav(){
   else if(AUTO.etat==="aucun")a=`<br><span style="color:#ffcc80;cursor:pointer;text-decoration:underline" onclick="aller('sauvegarde')">● Sauvegarde automatique non activée</span>`;
   document.getElementById("nav-bas").innerHTML="Dernière sauvegarde : "+d+"<br>Données sur cet ordinateur"+a;
 }
+function exigerCode(toujours,suite){if(!DB.ecole.code)return suite();if(!toujours&&codeOk)return suite();demanderCode(suite)}
 function demanderCode(suite){
   dialogue(`<h3>Code du directeur</h3><p class="muted">Cette partie est réservée au directeur.</p>
   <input type="password" id="dlg-code" style="width:100%" placeholder="Code"><p id="dlg-err" style="color:var(--rouge)"></p>
@@ -467,20 +474,21 @@ PAGES.accueil=el=>{
   const m=etat.mois||moisCourant();
   let alertes="";
   const jours=DB.derniereSauvegarde?(Date.now()-new Date(DB.derniereSauvegarde))/864e5:null;
-  if(AUTO.etat==="permission")alertes+=`<div class="alerte jaune"><b>Sauvegarde automatique en pause.</b> Le navigateur demande votre accord pour écrire dans le dossier de sauvegarde. <button class="btn petit" onclick="reactiverAuto()">Réactiver</button></div>`;
-  if(!DB.ecole.code)alertes+=`<div class="alerte jaune"><b>Aucun code directeur.</b> Créez-en un dans les Réglages pour protéger les matières, les réglages et le passage de fin d'année. <button class="btn petit sec" onclick="aller('reglages')">Créer le code</button></div>`;
+  if(!LECTURE_SEULE&&AUTO.etat==="permission")alertes+=`<div class="alerte jaune"><b>Sauvegarde automatique en pause.</b> Le navigateur demande votre accord pour écrire dans le dossier de sauvegarde. <button class="btn petit" onclick="reactiverAuto()">Réactiver</button></div>`;
+  if(!LECTURE_SEULE&&!DB.ecole.code)alertes+=`<div class="alerte jaune"><b>Aucun code directeur.</b> Créez-en un dans les Réglages pour protéger les matières, les réglages et le passage de fin d'année. <button class="btn petit sec" onclick="aller('reglages')">Créer le code</button></div>`;
   const nbDiff=DB.classes.reduce((a,c)=>a+difficultes(c,{type:"mois",v:m}).length,0);
+  if(LECTURE_SEULE)alertes="";
   if(nbDiff)alertes+=`<div class="alerte bleue"><b>${nbDiff} élève(s)</b> ont une moyenne inférieure à ${DB.ecole.seuil} à la composition ${deMois(m)}. <button class="btn petit sec" onclick="etat.per='m${m}';aller('difficulte')">Voir la liste</button></div>`;
-  if(AUTO.etat!=="ok"&&nbE>0&&(jours==null||jours>7))alertes+=`<div class="alerte rouge"><b>Pensez à sauvegarder.</b> ${jours==null?"Aucune sauvegarde n'a encore été faite.":"La dernière sauvegarde date de "+Math.floor(jours)+" jours."} <button class="btn petit" onclick="aller('sauvegarde')">${AUTO.etat==="aucun"?"Activer la sauvegarde automatique":"Sauvegarder maintenant"}</button></div>`;
-  if(DB.matieresProvisoires)alertes+=`<div class="alerte jaune"><b>Matières provisoires.</b> La liste des matières de chaque classe est un exemple à remplacer par celle de l'école. <button class="btn petit sec" onclick="aller('matieres')">Modifier les matières</button></div>`;
-  if(nbE===0)alertes+=`<div class="alerte bleue"><b>Pour commencer :</b> ajoutez les élèves de chaque classe dans « Élèves » (vous pouvez coller une liste entière), puis saisissez les notes de composition.</div>`;
+  if(!LECTURE_SEULE&&AUTO.etat!=="ok"&&nbE>0&&(jours==null||jours>7))alertes+=`<div class="alerte rouge"><b>Pensez à sauvegarder.</b> ${jours==null?"Aucune sauvegarde n'a encore été faite.":"La dernière sauvegarde date de "+Math.floor(jours)+" jours."} <button class="btn petit" onclick="aller('sauvegarde')">${AUTO.etat==="aucun"?"Activer la sauvegarde automatique":"Sauvegarder maintenant"}</button></div>`;
+  if(!LECTURE_SEULE&&DB.matieresProvisoires)alertes+=`<div class="alerte jaune"><b>Matières provisoires.</b> La liste des matières de chaque classe est un exemple à remplacer par celle de l'école. <button class="btn petit sec" onclick="aller('matieres')">Modifier les matières</button></div>`;
+  if(nbE===0&&!LECTURE_SEULE)alertes+=`<div class="alerte bleue"><b>Pour commencer :</b> ajoutez les élèves de chaque classe dans « Élèves » (vous pouvez coller une liste entière), puis saisissez les notes de composition.</div>`;
   const lignes=DB.classes.map(c=>{
     const el=elevesDe(c.id);let tot=0,rem=0;
     for(const e of el)for(const mt of c.matieres){tot++;if(note(c.id,m,e.id,mt.id)!==undefined)rem++}
     const pct=tot?Math.round(rem*100/tot):0;
     return `<tr><td>${esc(c.nom)}</td><td>${esc(c.maitre)||'<span class="muted">—</span>'}</td><td class="c">${el.length}</td><td class="c">${el.filter(e=>e.sexe==="G").length}</td><td class="c">${el.filter(e=>e.sexe==="F").length}</td>
-    <td><div style="background:#e0e6ed;border-radius:4px;height:10px;width:140px;display:inline-block;vertical-align:middle"><div style="background:${pct===100?"var(--vert)":"var(--bleu2)"};height:10px;border-radius:4px;width:${pct*1.4}px"></div></div> <span class="muted">${pct} %</span></td>
-    <td><button class="btn petit sec" onclick="etat.classe='${c.id}';etat.mois=${m};aller('saisie')">Saisir</button></td></tr>`;
+    <td><div style="background:#e0e6ed;border-radius:4px;height:10px;width:140px;display:inline-block;vertical-align:middle"><div style="background:${pct===100?"var(--vert)":"var(--bleu2)"};height:10px;border-radius:4px;width:${pct*1.4}px"></div></div> <span class="muted">${pct} %</span>${estClos(c.id,m)?' <span title="Composition clôturée">🔒</span>':""}</td>
+    <td><button class="btn petit sec" onclick="etat.classe='${c.id}';etat.mois=${m};aller('saisie')">${LECTURE_SEULE||estClos(c.id,m)?"Voir":"Saisir"}</button></td></tr>`;
   }).join("");
   if(window.innerWidth<=820){const dd=DB.derniereSauvegarde?new Date(DB.derniereSauvegarde).toLocaleString("fr-FR",{day:"2-digit",month:"2-digit",year:"numeric",hour:"2-digit",minute:"2-digit"}):null;
     alertes=`<div class="alerte bleue">${dd?"Données de la sauvegarde du <b>"+dd+"</b>.":"Aucune donnée importée pour l'instant."} <button class="btn petit" onclick="aller('sauvegarde')">${dd?"Mettre à jour":"Importer une sauvegarde"}</button></div>`+alertes;}
@@ -508,6 +516,7 @@ PAGES.eleves=el=>{
    <td><button class="btn petit sec" data-mod="${e.id}">Modifier</button></td></tr>`).join("")}</table>`:`<p class="muted">Aucun élève dans cette classe pour l'instant.</p>`}
   </div>`;
   el.querySelector("#el-cl").onchange=e=>{etat.classe=e.target.value;aller("eleves")};
+  if(LECTURE_SEULE){el.querySelectorAll("#el-aj,#el-col,[data-mod]").forEach(b=>b.remove());return}
   el.querySelector("#el-aj").onclick=()=>ficheEleve(null);
   el.querySelector("#el-col").onclick=collerListe;
   el.querySelectorAll("[data-mod]").forEach(b=>b.onclick=()=>ficheEleve(DB.eleves.find(x=>x.id===b.dataset.mod)));
@@ -601,11 +610,13 @@ PAGES.saisie=el=>{
   const c=classe(etat.classe);const m=etat.mois||moisCourant();etat.mois=m;
   const liste=elevesDe(c.id);
   const optsMois=moisActifs().map(x=>`<option value="${x.m}" ${x.m===m?"selected":""}>${estCompoTrim(c,x.m)?"Composition du "+ordTrim(x.t)+" trimestre ("+MOIS_NOMS[x.m].toLowerCase()+")":MOIS_NOMS[x.m]+" ("+ordTrim(x.t)+" trim.)"}</option>`).join("");
-  el.innerHTML=`<h1>Saisie des notes de composition</h1>
-  <p class="sous">Notes sur ${DB.ecole.bareme}. Virgule ou point acceptés. Tapez <b>D</b> pour un élève dispensé. Entrée = élève suivant. Tout est enregistré automatiquement.</p>
+  const clos=estClos(c.id,m),bloque=LECTURE_SEULE||clos;
+  el.innerHTML=`<h1>${LECTURE_SEULE?"Notes de composition":"Saisie des notes de composition"}</h1>
+  <p class="sous">${LECTURE_SEULE?`Notes sur ${DB.ecole.bareme}. Faites glisser le tableau vers la gauche pour voir toutes les matières.`:`Notes sur ${DB.ecole.bareme}. Virgule ou point acceptés. Tapez <b>D</b> pour un élève dispensé. Entrée = élève suivant. Tout est enregistré automatiquement.`}</p>
   <div class="carte ligne"><label>Classe ${selClasses("s-cl",c.id)}</label><label>Composition<select id="s-mo">${optsMois}</select></label>
    <label>Maître<input type="text" id="s-ma" value="${esc(c.maitre)}" placeholder="Nom du maître"></label>
    <div class="muted" style="margin-left:auto" id="s-info"></div></div>
+  ${barreCloture(c,m)}
   ${liste.length?`<div class="grille-wrap"><table class="grille" id="grille"><thead><tr><th class="num">N°</th><th class="nom">Élève</th>
    ${c.matieres.map(mt=>`<th title="${esc(mt.nom)}">${esc(mt.nom)}${mt.coef!==1?`<br><span class="muted">coef ${mt.coef}</span>`:""}</th>`).join("")}<th>Moyenne</th><th>Rang</th></tr></thead><tbody>
    ${liste.map((e,i)=>`<tr data-e="${e.id}"><td class="num">${i+1}</td><td class="nom">${esc(nomComplet(e))}</td>
@@ -615,7 +626,25 @@ PAGES.saisie=el=>{
   el.querySelector("#s-cl").onchange=e=>{etat.classe=e.target.value;aller("saisie")};
   el.querySelector("#s-mo").onchange=e=>{etat.mois=+e.target.value;aller("saisie")};
   el.querySelector("#s-ma").onchange=e=>{c.maitre=e.target.value.trim();enregistrer();toast("Nom du maître enregistré")};
+  if(bloque)el.querySelector("#s-ma").disabled=true;
+  const clo=el.querySelector("#s-clo");
+  if(clo)clo.onclick=()=>exigerCode(false,()=>{
+    let tot=0,rem=0;for(const e of liste)for(const mt of c.matieres){tot++;if(note(c.id,m,e.id,mt.id)!==undefined)rem++}
+    if(tot>rem&&!confirm((tot-rem)+" note(s) manquent encore pour cette composition. Clôturer quand même ?"))return;
+    if(!DB.ecole.code&&!confirm("Aucun code directeur n'est créé : n'importe qui pourra rouvrir cette composition. Clôturer quand même ?"))return;
+    DB.clotures[c.id+"|"+m]={d:new Date().toISOString()};
+    DB.journal.push({t:new Date().toISOString(),c:c.nom,m:MOIS_NOMS[m],e:"—",mat:"Clôture de la composition",a:"",n:"clôturée"});
+    enregistrer();toast("Composition clôturée");aller("saisie");
+  });
+  const rv=el.querySelector("#s-rouv");
+  if(rv)rv.onclick=()=>exigerCode(true,()=>{
+    if(!DB.ecole.code&&!confirm("Rouvrir cette composition ?"))return;
+    delete DB.clotures[c.id+"|"+m];
+    DB.journal.push({t:new Date().toISOString(),c:c.nom,m:MOIS_NOMS[m],e:"—",mat:"Clôture de la composition",a:"clôturée",n:"rouverte"});
+    enregistrer();toast("Composition rouverte");aller("saisie");
+  });
   const g=el.querySelector("#grille");if(!g)return;
+  if(bloque)g.querySelectorAll("input").forEach(i=>{i.readOnly=true;i.tabIndex=-1;i.style.cursor="default"});
   const majMoy=()=>{
     const r=rangs(c,{type:"mois",v:m});
     g.querySelectorAll("tbody tr").forEach(tr=>{
@@ -646,6 +675,12 @@ PAGES.saisie=el=>{
   g.addEventListener("focusin",ev=>{if(ev.target.tagName==="INPUT")ev.target.select()});
 };
 
+function barreCloture(c,m){
+  if(LECTURE_SEULE)return `<div class="alerte bleue">Consultation : les notes ne peuvent pas être modifiées sur ce téléphone.</div>`;
+  const k=DB.clotures[c.id+"|"+m];
+  if(k)return `<div class="alerte verte">🔒 <b>Composition clôturée</b> le ${new Date(k.d).toLocaleDateString("fr-FR")} : les notes ne peuvent plus être modifiées. <button class="btn petit sec" id="s-rouv">Rouvrir (code du directeur)</button></div>`;
+  return `<div class="ligne" style="justify-content:flex-end;margin:-6px 0 10px"><span class="muted">Après l'impression des bulletins :</span><button class="btn petit sec" id="s-clo">🔒 Clôturer cette composition</button></div>`;
+}
 /* ---------- Bulletins ---------- */
 PAGES.bulletins=el=>{
   el.innerHTML=`<h1>Bulletins</h1><p class="sous">Deux bulletins par feuille A4. Les élèves sont classés par ordre alphabétique.</p>
@@ -983,7 +1018,7 @@ PAGES.sauvegarde=el=>{
   <input type="file" id="s-fi" accept=".json,application/json,application/octet-stream,text/plain"> <button class="btn" id="s-rs" style="margin-top:8px">Importer</button></div>`;
   el.innerHTML=`<h1>Sauvegarde et Excel</h1><p class="sous">${tel?"Sur le téléphone, les données servent à consulter : elles viennent de la sauvegarde de l'ordinateur.":"Les données sont gardées dans cet ordinateur. Une sauvegarde régulière les protège en cas de panne ou de nettoyage du navigateur."}</p>
   ${tel?carteImport:carteAuto()}
-  <div class="carte"><h2 style="margin-top:0">Sauvegarde manuelle</h2><p>Crée un fichier de sauvegarde dans le dossier <b>Téléchargements</b> de l'ordinateur. Faites-le après chaque séance de saisie. Copiez aussi de temps en temps ce fichier sur une clé USB.</p>
+  <div class="carte" ${LECTURE_SEULE?'style="display:none"':""}><h2 style="margin-top:0">Sauvegarde manuelle</h2><p>Crée un fichier de sauvegarde dans le dossier <b>Téléchargements</b> de l'ordinateur. Faites-le après chaque séance de saisie. Copiez aussi de temps en temps ce fichier sur une clé USB.</p>
   <button class="btn vert" id="s-sv">Sauvegarder maintenant</button> <span class="muted">Dernière sauvegarde : ${DB.derniereSauvegarde?new Date(DB.derniereSauvegarde).toLocaleString("fr-FR"):"jamais"}</span></div>
   ${tel?"":`<div class="carte"><h2 style="margin-top:0">Restaurer une sauvegarde</h2><p>Remplace toutes les données actuelles par celles d'un fichier de sauvegarde.</p>
   <input type="file" id="s-fi" accept=".json,application/json,application/octet-stream,text/plain"> <button class="btn rouge" id="s-rs">Restaurer</button></div>`}
@@ -1263,7 +1298,7 @@ function passerAnnee(an){
     else if(d==="P"||d==="Q"){const ma=moyAnnuelle(c,e.id);DB.sortants.push({matricule:matricule(e),nom:e.nom.toUpperCase(),prenom:e.prenom,sexe:e.sexe||"",classe:c.nom,annee:ancienne,moy:ma==null?null:Math.round(ma*100)/100,motif:txtDecision(c,e,d),eleve:e});s++}
     else{r++;restent.push(e)}
   }
-  DB.eleves=restent;DB.notes={};DB.decisions={};DB.journal=[];DB.certificats=[];DB.seqCert=1;DB.ecole.annee=an;
+  DB.eleves=restent;DB.notes={};DB.decisions={};DB.clotures={};DB.journal=[];DB.certificats=[];DB.seqCert=1;DB.ecole.annee=an;
   enregistrer();
   alert("Année "+an+" prête.\n\n"+p+" élève(s) passé(s) en classe supérieure\n"+r+" élève(s) restent dans leur classe\n"+s+" élève(s) sorti(s) de l'école\n\nL'archive de "+ancienne+" est dans le dossier Téléchargements. Ajoutez maintenant les nouveaux élèves de 1re année.");
   aller("accueil");
@@ -1328,6 +1363,7 @@ document.addEventListener("click",()=>{if(AUTO.etat==="permission"&&!demandeFait
 
 /* ---------- Démarrage ---------- */
 document.getElementById("vieux").style.display="none";
+if(LECTURE_SEULE){["saisie","matieres","reglages","finannee","certificats","journal"].forEach(x=>{const a=document.querySelector('nav a[data-p="'+x+'"]');if(a){if(x==="saisie")a.textContent="Notes par classe";else a.remove()}});document.getElementById("nav-sous").dataset.ro="1"}
 if(location.protocol==="https:"){
   try{const l=document.createElement("link");l.rel="manifest";l.href="manifest.json";document.head.appendChild(l);
   if("serviceWorker" in navigator)navigator.serviceWorker.register("sw.js").catch(()=>{});}catch(e){}
