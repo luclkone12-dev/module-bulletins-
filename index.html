@@ -896,7 +896,7 @@ async function noterEnvoi(kind,eid,x){
 function loadImg(src){return new Promise(ok=>{if(!src)return ok(null);const i=new Image();i.onload=()=>ok(i);i.onerror=()=>ok(null);i.src=src})}
 async function carteBase(sousTitre){
   try{await document.fonts.load('700 40px Bitter');await document.fonts.load('600 30px "Source Sans 3"')}catch(_){}
-  const W=1080,H=1200,c=document.createElement('canvas');c.width=W;c.height=H;const x=c.getContext('2d');
+  const W=1080,H=1200,c=document.createElement('canvas');c.width=W;c.height=H;const x=c.getContext('2d',{willReadFrequently:true}); // dessin sans la puce graphique : sur certains Android, elle retourne les textes
   x.fillStyle='#ffffff';x.fillRect(0,0,W,H);x.fillStyle='#13294b';x.fillRect(0,0,W,18);x.fillRect(0,H-18,W,18);
   const logo=await loadImg(S.logo);let y=56;
   if(logo){const k=Math.min(220/logo.width,220/logo.height),w=logo.width*k,h=logo.height*k;x.drawImage(logo,W/2-w/2,y+(220-h)/2,w,h);y+=240}else y+=140; // sans logo : contenu centré
